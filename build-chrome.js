@@ -27,8 +27,7 @@ if (fs.existsSync(installPath)) {
     const replacement = `${startMarker}${JSON.stringify(bookmarklet)}${endMarker}`;
     html = html.slice(0, sIdx) + replacement + html.slice(eIdx + endMarker.length);
     fs.writeFileSync(installPath, html, 'utf8');
-    fs.writeFileSync(path.join(__dirname, 'index.html'), html, 'utf8');
-    console.log('Injected inline bookmarklet into install.html & index.html');
+    console.log('Injected bookmarklet into install.html');
   }
 }
 
