@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      1.7.0
+// @version      1.8.0
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: אשף רציף של כל השלבים ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '1.7.0';
+  const SCRIPT_VERSION = '1.8.0';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -258,36 +258,33 @@
   // ---------------------------------------------------------------------------
   // 3. Robust Angular / Material DOM Engine for smartbase.digital.idf.il
   // ---------------------------------------------------------------------------
-  // Bulletproof visibility check: walks ancestors to reject Angular <mat-stepper> inactive panes
-  // hidden via height:0 + overflow:hidden, opacity:0, visibility:hidden, or horizontal offscreen transforms!
   function isVisible(el) {
     if (!el || el.nodeType !== 1) return false;
     if (el.closest('#sb-qf-host')) return false;
-    if (el.closest('[aria-hidden="true"], [aria-expanded="false"], .mat-horizontal-stepper-content-inactive, .cdk-visually-hidden')) return false;
+    if (el.closest('[aria-hidden="true"], [aria-expanded="false"], [hidden], .mat-horizontal-stepper-content-inactive, .cdk-visually-hidden')) return false;
 
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) return false;
 
     const rect = el.getBoundingClientRect();
     if (rect.width <= 1 || rect.height <= 1) return false;
+
+    // Never reject open overlay / dropdown / modal options due to wrapper overflow boxes
+    if (el.closest('.cdk-overlay-container, [role="listbox"], [role="dialog"], [role="menu"]')) {
+      return true;
+    }
+
     if (rect.right <= 4 || rect.left >= window.innerWidth - 4) return false;
 
-    let isFixed = style.position === 'fixed';
     let p = el.parentElement;
     while (p && p !== document.body && p !== document.documentElement) {
       const ps = window.getComputedStyle(p);
       if (ps.display === 'none' || ps.visibility === 'hidden' || parseFloat(ps.opacity) === 0) return false;
-      if (!isFixed) {
-        const clipsX = ps.overflowX === 'hidden' || ps.overflowX === 'clip';
-        const clipsY = ps.overflowY === 'hidden' || ps.overflowY === 'clip';
-        if (clipsX || clipsY) {
-          const pr = p.getBoundingClientRect();
-          if (pr.width <= 2 || pr.height <= 2) return false;
-          if (clipsX && (rect.right <= pr.left + 2 || rect.left >= pr.right - 2)) return false;
-          if (clipsY && p.scrollHeight <= p.clientHeight + 2 && (rect.bottom <= pr.top + 2 || rect.top >= pr.bottom - 2)) return false;
-        }
+      // Catch collapsed Angular stepper containers (height: 0; overflow: hidden) without hurting mat-form-field
+      if ((ps.overflowY === 'hidden' || ps.overflow === 'hidden') && p.getBoundingClientRect().height === 0) {
+        return false;
       }
-      if (ps.position === 'fixed') isFixed = true;
+      if (ps.position === 'fixed') break;
       p = p.parentElement;
     }
     return true;
@@ -336,6 +333,7 @@
     if (!el) return false;
     const strVal = String(value ?? '');
     el.focus();
+    try { el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); } catch (_) {}
 
     if (el.tagName === 'SELECT') {
       const opts = Array.from(el.options);
@@ -343,7 +341,6 @@
       el.value = match ? match.value : strVal;
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      el.dispatchEvent(new Event('blur', { bubbles: true }));
       highlightPageEl(el);
       return true;
     }
@@ -353,9 +350,14 @@
     if (setter) setter.call(el, strVal);
     else el.value = strVal;
 
-    el.dispatchEvent(new Event('input', { bubbles: true }));
+    try {
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: strVal }));
+    } catch (_) {
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
+    el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }));
+    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'ArrowDown' }));
     highlightPageEl(el);
     return true;
   }
@@ -421,19 +423,32 @@
     const isTextInput = (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.readOnly;
     if (isTextInput) {
       robustClick(el);
+      await delay(120);
       setNativeInputValue(el, cleanTarget);
-      // Poll up to 900ms for autocomplete suggestions to appear (in overlay OR inside card!) and click matching item
-      for (let i = 0; i < 7; i++) {
-        await delay(140);
+
+      // Poll up to 1.2s for autocomplete suggestions; halfway through, also try clicking the field's chevron arrow if not open yet
+      for (let i = 0; i < 8; i++) {
+        await delay(150);
+        if (i === 3) {
+          const fieldBox = el.closest('mat-form-field, .mat-mdc-form-field, .mat-form-field') || el.parentElement;
+          const arrow = fieldBox && fieldBox.querySelector('mat-icon, svg, [aria-label*="פתח"], .mat-select-arrow, button');
+          if (arrow && arrow !== el) {
+            robustClick(arrow);
+            await delay(180);
+            // Re-type in case clicking arrow reset filter
+            setNativeInputValue(el, cleanTarget);
+            await delay(180);
+          }
+        }
         const opt = findVisibleOptionInDocument(cleanTarget, el);
         if (opt) {
           robustClick(opt);
-          await delay(160);
+          await delay(180);
           highlightPageEl(el);
           return true;
         }
       }
-      el.dispatchEvent(new Event('blur', { bubbles: true }));
+      // NOTE: Do NOT dispatch blur if no option matched — Angular requireSelection wipes the value on blur!
       return true;
     }
 
@@ -1376,7 +1391,7 @@
           <div class="sheet-title-wrap">
             <span style="font-size:20px;">⚡</span>
             <div>
-              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v1.7</span></h2>
+              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v1.8</span></h2>
               <p id="qf-subtitle" class="sheet-sub">שלב 1 • תכנון נסיעה ומסלולים</p>
             </div>
           </div>
@@ -2088,6 +2103,10 @@
         </div>
       </div>
 
+      <button id="btn-copy-dom-diag" type="button" class="sm-btn" style="width:100%;">
+        🩺 העתק דוח אבחון שדות (לתמיכה)
+      </button>
+
       <button id="btn-toggle-adv" type="button" class="sm-btn" style="width:100%;">
         🔧 ${extState.showAdvanced ? 'הסתר כיול שדות מתקדם' : 'כיול שדות מתקדם (אם שדה לא מתמלא)'}
       </button>
@@ -2221,6 +2240,25 @@
       } catch (_) {
         showToast('קוד לא תקין');
       }
+    });
+
+    shadow.getElementById('btn-copy-dom-diag').addEventListener('click', async () => {
+      const els = Array.from(document.querySelectorAll('input, select, textarea, mat-select, p-dropdown, ng-select, ion-select, [role="combobox"], [role="listbox"], button'))
+        .filter(el => !el.closest('#sb-qf-host'))
+        .slice(0, 45)
+        .map(el => ({
+          tag: el.tagName.toLowerCase(),
+          type: el.getAttribute('type') || '',
+          readOnly: Boolean(el.readOnly),
+          disabled: Boolean(el.disabled),
+          vis: isVisible(el),
+          cls: String(el.className || '').slice(0, 60),
+          lbl: getAccessibleLabel(el).slice(0, 50),
+          txt: (el.value || el.textContent || '').trim().slice(0, 35)
+        }));
+      const report = JSON.stringify({ v: SCRIPT_VERSION, url: location.href, step: detectCurrentPageStep(), els }, null, 2);
+      await copyToClipboard(report, 'העתק דוח אבחון:');
+      showToast('דוח אבחון הדף הועתק ללוח ✓');
     });
 
     shadow.getElementById('btn-toggle-adv').addEventListener('click', () => {
