@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      3.1.0
+// @version      3.1.1
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מנוע React Fiber ישיר לאשף רציף ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '3.1.0';
+  const SCRIPT_VERSION = '3.1.1';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -1597,7 +1597,7 @@
           <div class="sheet-title-wrap">
             <span style="font-size:20px;">⚡</span>
             <div>
-              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v3.1</span></h2>
+              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v3.1.1</span></h2>
               <p id="qf-subtitle" class="sheet-sub">שלב 1 • תכנון נסיעה ומסלולים</p>
             </div>
           </div>
@@ -2138,6 +2138,69 @@
     return Boolean(arrivedStep3);
   }
 
+  // Multi-strategy opener for Step 3 ("קראתי והבנתי" -> "חתימה דיגיטלית"), verifying after each attempt
+  async function openSignDialogOnStep3() {
+    const dialogState = () => {
+      const t = document.body ? document.body.innerText : '';
+      if (t.includes('חתימה דיגיטלית')) return 'DIALOG';
+      if (t.includes('שמרנו את המשימה שלך')) return 'SAVED';
+      return null;
+    };
+    if (dialogState()) return dialogState();
+
+    const findAck = () => {
+      const list = Array.from(document.querySelectorAll('p, span, label'))
+        .filter(el => !el.closest('#sb-qf-host') && el.children.length === 0 && el.textContent.trim().startsWith('קראתי והבנתי'));
+      return list.find(isVisible) || list[list.length - 1] || null;
+    };
+    const findCb = () => {
+      const p = findAck();
+      let cur = p && p.parentElement;
+      for (let i = 0; cur && i < 4; i++, cur = cur.parentElement) {
+        const cb = cur.querySelector('input[type="checkbox"]');
+        if (cb) return cb;
+      }
+      return null;
+    };
+    const findCont = () => {
+      const btns = Array.from(document.querySelectorAll('button#continue, button[id="continue"], button[aria-label="continue"]'))
+        .filter(b => !b.closest('#sb-qf-host') && !b.disabled);
+      return btns.find(isVisible) || null;
+    };
+    const fakeEv = (target) => ({ preventDefault() {}, stopPropagation() {}, target: target || { checked: true }, currentTarget: target });
+    const callReact = (el, name, ev) => {
+      const rp = getReactProps(el);
+      if (rp && typeof rp[name] === 'function') { rp[name](ev); return true; }
+      return false;
+    };
+
+    // Wait for Step 3 content to mount after the swipe animation
+    await waitForCondition(() => findAck() || findCont(), 5000, 120);
+    const anchor = findAck() || findCont();
+    if (anchor) { try { anchor.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {} }
+    await delay(250);
+
+    const strategies = [
+      () => { const p = findAck(); return p && callReact(p, 'onClick', fakeEv(p)); },
+      () => { const cb = findCb(); return cb && callReact(cb, 'onChange', fakeEv(cb)); },
+      () => { const cb = findCb(); if (cb) { cb.click(); return true; } return false; },
+      () => { const p = findAck(); if (p) { robustClick(p); return true; } return false; },
+      () => { const b = findCont(); if (b) { if (!callReact(b, 'onClick', fakeEv(b))) robustClick(b); return true; } return false; }
+    ];
+
+    for (let round = 0; round < 2; round++) {
+      for (const s of strategies) {
+        let did = false;
+        try { did = s(); } catch (_) {}
+        if (!did) continue;
+        const res = await waitForCondition(dialogState, 1500, 100);
+        if (res) return res;
+      }
+      await delay(600);
+    }
+    return null;
+  }
+
   async function executeStep3OnPage() {
     await delay(200);
     const bodyNow = document.body ? document.body.innerText : '';
@@ -2156,8 +2219,8 @@
     // A. Direct React 18 Fiber Engine for Real SmartBase (Step 3: Ze & Le)
     // -------------------------------------------------------------------------
     const missionCtx = findMissionContext();
-    if (missionCtx) {
-      if (cleanOdo && typeof missionCtx.setCurrKilometrage === 'function') {
+    if (missionCtx || !document.getElementById('checkbox-ack-guidelines')) {
+      if (cleanOdo && missionCtx && typeof missionCtx.setCurrKilometrage === 'function') {
         missionCtx.setCurrKilometrage(cleanOdo);
         await delay(120);
       }
@@ -2165,36 +2228,7 @@
       // In MissionSignature.js (Ze):
       // - If !requiresBriefingType: <p onClick={m}>קראתי והבנתי את ההנחיות.</p> checks the box AND sets open=true!
       // - If requiresBriefingType: button#continue ("המשך") has onClick={h} which sets open=true!
-      const ackPara = Array.from(document.querySelectorAll('p, span, label'))
-        .find(el => !el.closest('#sb-qf-host') && el.children.length === 0 && el.textContent.trim().includes('קראתי והבנתי את ההנחיות'));
-
-      if (ackPara) {
-        const rp = getReactProps(ackPara);
-        if (rp && typeof rp.onClick === 'function') {
-          rp.onClick({ preventDefault() {}, stopPropagation() {} });
-        } else {
-          robustClick(ackPara);
-        }
-      } else {
-        const contBtns = Array.from(document.querySelectorAll('button#continue, button[id="continue"], button[aria-label="continue"]'))
-          .filter(b => !b.closest('#sb-qf-host'));
-        const step3Btn = contBtns.find(b => isVisible(b) && !b.disabled) || contBtns[contBtns.length - 1];
-        if (step3Btn && !step3Btn.disabled) {
-          const rp = getReactProps(step3Btn);
-          if (rp && typeof rp.onClick === 'function') {
-            rp.onClick({ preventDefault() {}, stopPropagation() {} });
-          } else {
-            robustClick(step3Btn);
-          }
-        }
-      }
-
-      const dialogState = await waitForCondition(() => {
-        const txt = document.body ? document.body.innerText : '';
-        if (txt.includes('חתימה דיגיטלית')) return 'DIALOG';
-        if (txt.includes('שמרנו את המשימה שלך')) return 'SAVED';
-        return null;
-      }, 2800, 140);
+      const dialogState = await openSignDialogOnStep3();
 
       if (dialogState === 'SAVED') {
         showToast('✓ הכרטיס נשמר בעמוד "עדכונים" (ממתין לחתימת הנהג)');
@@ -2473,7 +2507,7 @@
       if (pageStep === 1) {
         showToast('⚡ ממלא שלב 1/3 (מסלול, עצירה ומטרה)...');
         const ok1 = await executeStep1OnPage();
-        if (!ok1) {
+        if (!ok1 && !(await waitForCondition(() => detectCurrentPageStep() >= 2, 5000, 200))) {
           showToast('שלב 1 מולא — בדוק את השדות ולחץ המשך');
           return;
         }
@@ -2483,7 +2517,10 @@
       if (pageStep === 2) {
         showToast('⚡ ממלא שלב 2/3 (רכב, צוות ומשלח)...');
         const ok2 = await executeStep2OnPage();
-        if (!ok2) {
+        if (!ok2 && !(await waitForCondition(() => {
+          const txt = document.body ? document.body.innerText : '';
+          return detectCurrentPageStep() === 3 || txt.includes('שמרנו את המשימה שלך');
+        }, 6000, 200))) {
           showToast('שלב 2 מולא — בדוק את השדות ולחץ המשך');
           return;
         }
@@ -2494,6 +2531,8 @@
         showToast('⚡ מאשר שלב 3/3 ופותח חתימה...');
         await executeStep3OnPage();
       }
+    } catch (err) {
+      showToast('שגיאה במילוי: ' + String((err && err.message) || err).slice(0, 80));
     } finally {
       isAutopilotRunning = false;
     }
