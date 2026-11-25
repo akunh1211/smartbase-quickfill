@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      1.8.0
+// @version      2.0.0
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: אשף רציף של כל השלבים ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '1.8.0';
+  const SCRIPT_VERSION = '2.0.0';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -258,19 +258,24 @@
   // ---------------------------------------------------------------------------
   // 3. Robust Angular / Material DOM Engine for smartbase.digital.idf.il
   // ---------------------------------------------------------------------------
+  // Exact visibility check tuned for React MUI v5 (never rejects closed MuiAutocomplete/MuiSelect with aria-expanded="false"!)
   function isVisible(el) {
     if (!el || el.nodeType !== 1) return false;
     if (el.closest('#sb-qf-host')) return false;
-    if (el.closest('[aria-hidden="true"], [aria-expanded="false"], [hidden], .mat-horizontal-stepper-content-inactive, .cdk-visually-hidden')) return false;
+    if (el.closest('[aria-hidden="true"], [hidden]')) return false;
 
     const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) return false;
+    // Allow MUI's PrivateSwitchBase-input checkbox which has opacity:0 over a visible wrapper
+    const isMuiSwitchInput = el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio');
+    if (style.display === 'none' || style.visibility === 'hidden' || (!isMuiSwitchInput && parseFloat(style.opacity) === 0)) {
+      return false;
+    }
 
     const rect = el.getBoundingClientRect();
     if (rect.width <= 1 || rect.height <= 1) return false;
 
-    // Never reject open overlay / dropdown / modal options due to wrapper overflow boxes
-    if (el.closest('.cdk-overlay-container, [role="listbox"], [role="dialog"], [role="menu"]')) {
+    // Always allow open MUI Popper / Popover / Modal / Dialog / Listbox options
+    if (el.closest('.MuiPopper-root, .MuiPopover-root, .MuiModal-root, .MuiDialog-root, .MuiAutocomplete-popper, .cdk-overlay-container, [role="listbox"], [role="dialog"], [role="menu"]')) {
       return true;
     }
 
@@ -280,7 +285,6 @@
     while (p && p !== document.body && p !== document.documentElement) {
       const ps = window.getComputedStyle(p);
       if (ps.display === 'none' || ps.visibility === 'hidden' || parseFloat(ps.opacity) === 0) return false;
-      // Catch collapsed Angular stepper containers (height: 0; overflow: hidden) without hurting mat-form-field
       if ((ps.overflowY === 'hidden' || ps.overflow === 'hidden') && p.getBoundingClientRect().height === 0) {
         return false;
       }
@@ -317,11 +321,10 @@
     }, 1050);
   }
 
-  // Full pointer + mouse + native click simulation for Angular/Ionic/Material listeners
   function robustClick(el) {
     if (!el) return;
     try { el.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
-    const opts = { bubbles: true, cancelable: true, view: window };
+    const opts = { bubbles: true, cancelable: true, view: window, button: 0 };
     try { el.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (_) {}
     try { el.dispatchEvent(new MouseEvent('mousedown', opts)); } catch (_) {}
     try { el.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (_) {}
@@ -329,6 +332,7 @@
     try { el.click(); } catch (_) {}
   }
 
+  // Canonical React 17/18 + Native input setter (resets React's internal _valueTracker so onChange ALWAYS fires!)
   function setNativeInputValue(el, value) {
     if (!el) return false;
     const strVal = String(value ?? '');
@@ -338,17 +342,24 @@
     if (el.tagName === 'SELECT') {
       const opts = Array.from(el.options);
       const match = opts.find(o => o.value === strVal || o.text.trim() === strVal || o.text.includes(strVal));
+      const prev = el.value;
       el.value = match ? match.value : strVal;
+      if (el._valueTracker) el._valueTracker.setValue(prev);
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       highlightPageEl(el);
       return true;
     }
 
+    const prevVal = el.value;
     const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
     if (setter) setter.call(el, strVal);
     else el.value = strVal;
+
+    if (el._valueTracker) {
+      try { el._valueTracker.setValue(prevVal); } catch (_) {}
+    }
 
     try {
       el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: strVal }));
@@ -356,32 +367,24 @@
       el.dispatchEvent(new Event('input', { bubbles: true }));
     }
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }));
-    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'ArrowDown' }));
     highlightPageEl(el);
     return true;
   }
 
-  // Search the entire visible DOM (excluding ONLY the trigger/input itself — NOT the whole card!)
   function findVisibleOptionInDocument(targetText, excludeEl) {
     const cleanTarget = String(targetText || '').trim();
     if (!cleanTarget) return null;
 
     const isExcluded = (el) => excludeEl && (el === excludeEl || excludeEl.contains(el) || el.contains(excludeEl));
 
-    // 1. Check standard Angular CDK / Material / ARIA / Ionic / PrimeNG / autocomplete option elements first
+    // 1. React MUI Autocomplete & MuiSelect MenuItems first!
     const prioritySelectors = [
-      '.cdk-overlay-container mat-option',
-      '.cdk-overlay-container [role="option"]',
-      '.cdk-overlay-container .mdc-list-item',
-      '.cdk-overlay-container li',
-      '.cdk-overlay-container button',
-      'mat-option',
-      '[role="option"]',
-      'ion-select-option',
-      'p-dropdownitem',
-      '.ng-option',
+      '.MuiAutocomplete-option',
+      '.MuiAutocomplete-listbox li',
       '.MuiMenuItem-root',
+      '[role="listbox"] [role="option"]',
+      '[role="option"]',
+      '.cdk-overlay-container mat-option',
       'ul li'
     ].join(', ');
 
@@ -392,29 +395,36 @@
     if (match) return match;
     match = priorityNodes.find(el => el.textContent.trim().includes(cleanTarget));
     if (match) return match;
+    match = priorityNodes.find(el => cleanTarget.includes(el.textContent.trim()) && el.textContent.trim().length >= 2);
+    if (match) return match;
 
-    // 2. Fallback: ANY visible leaf/short element in overlays/modals/lists matching exact text
+    // 2. Generic leaf fallback
     const genericNodes = Array.from(document.querySelectorAll('li, button, a, p, span, div'))
       .filter(el => {
         if (!isVisible(el) || isExcluded(el)) return false;
         if (el.children.length > 2) return false;
-        const t = el.textContent.trim();
-        return t === cleanTarget;
+        return el.textContent.trim() === cleanTarget;
       });
 
     if (genericNodes.length > 0) {
       const inOverlay = genericNodes.find(el =>
-        el.closest('.cdk-overlay-container, [role="listbox"], [role="dialog"], [role="menu"], .modal, .popover, .dropdown-menu, ul')
+        el.closest('.MuiPopper-root, .MuiPopover-root, .MuiModal-root, [role="listbox"], [role="dialog"], [role="menu"], ul')
       );
       return inOverlay || genericNodes[genericNodes.length - 1];
     }
     return null;
   }
 
-  // Handles native <select>, Angular mat-select, custom read-only dropdowns, and searchable autocomplete inputs
+  // Dedicated React MUI Autocomplete + MuiSelect filler (used for מוצא, עצירה שנוספה, יעד, #vehicle-num, and #targetId!)
   async function fillSmartDropdownOrInput(el, targetText) {
     if (!el || !targetText) return false;
     const cleanTarget = String(targetText).trim();
+
+    // Unwrap if caller passed an outer MUI Autocomplete/FormControl wrapper instead of the inner <input>
+    if (el.tagName !== 'INPUT' && el.tagName !== 'SELECT' && el.tagName !== 'TEXTAREA' && !el.classList.contains('MuiSelect-select')) {
+      const inner = el.querySelector('input:not([type="hidden"]):not(.MuiSelect-nativeInput)');
+      if (inner) el = inner;
+    }
 
     if (el.tagName === 'SELECT') {
       return setNativeInputValue(el, cleanTarget);
@@ -422,53 +432,47 @@
 
     const isTextInput = (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.readOnly;
     if (isTextInput) {
+      // 1. Focus & open MUI Autocomplete popper FIRST (before typing so clicking Open never resets our typed text!)
       robustClick(el);
       await delay(120);
+
+      const inputRoot = el.closest('.MuiInputBase-root, .MuiAutocomplete-root, .MuiFormControl-root') || el.parentElement;
+      const openBtn = inputRoot && inputRoot.querySelector('button[aria-label="Open"], .MuiAutocomplete-popupIndicator');
+      if (openBtn && !document.querySelector('.MuiAutocomplete-listbox, [role="listbox"]')) {
+        robustClick(openBtn);
+        await delay(160);
+      }
+
+      // 2. Type search query via React _valueTracker setter so MUI filters the open listbox
       setNativeInputValue(el, cleanTarget);
 
-      // Poll up to 1.2s for autocomplete suggestions; halfway through, also try clicking the field's chevron arrow if not open yet
-      for (let i = 0; i < 8; i++) {
+      // 3. Poll up to 2.4s for MUI Autocomplete options and click the matching <li role="option">
+      for (let i = 0; i < 15; i++) {
         await delay(150);
-        if (i === 3) {
-          const fieldBox = el.closest('mat-form-field, .mat-mdc-form-field, .mat-form-field') || el.parentElement;
-          const arrow = fieldBox && fieldBox.querySelector('mat-icon, svg, [aria-label*="פתח"], .mat-select-arrow, button');
-          if (arrow && arrow !== el) {
-            robustClick(arrow);
-            await delay(180);
-            // Re-type in case clicking arrow reset filter
-            setNativeInputValue(el, cleanTarget);
-            await delay(180);
-          }
-        }
         const opt = findVisibleOptionInDocument(cleanTarget, el);
         if (opt) {
           robustClick(opt);
-          await delay(180);
+          await delay(200);
           highlightPageEl(el);
           return true;
         }
       }
-      // NOTE: Do NOT dispatch blur if no option matched — Angular requireSelection wipes the value on blur!
+
+      // Fallback: ArrowDown + Enter if MUI rendered virtualized options
+      el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown', keyCode: 40 }));
+      await delay(100);
+      el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', keyCode: 13 }));
       return true;
     }
 
-    // Read-only dropdown / mat-select / custom clickable trigger
+    // React MUI <Select> (.MuiSelect-select, e.g. #targetId "תפקיד") opens on mousedown(button:0)
     robustClick(el);
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
       await delay(150);
-      if (i === 1) {
-        const overlaySearch = document.querySelector(
-          '.cdk-overlay-container input[type="text"], .cdk-overlay-container input[type="search"], .cdk-overlay-container input:not([type="hidden"]):not([type="checkbox"])'
-        );
-        if (overlaySearch && isVisible(overlaySearch)) {
-          setNativeInputValue(overlaySearch, cleanTarget);
-          await delay(220);
-        }
-      }
       const opt = findVisibleOptionInDocument(cleanTarget, el);
       if (opt) {
         robustClick(opt);
-        await delay(180);
+        await delay(200);
         highlightPageEl(el);
         return true;
       }
@@ -476,13 +480,11 @@
     return false;
   }
 
-  // Dedicated Handler for "הוספת עצירה" on real SmartBase Step 1:
-  // Click ONLY the exact text "הוספת עצירה" (NOT the '+' icon!) -> wait for "עצירה שנוספה" input -> fill & pick option.
+  // Dedicated Handler for "הוספת עצירה" -> "עצירה שנוספה" on real SmartBase Step 1
   async function addAndFillStopOnStep1(stopText) {
     const cleanStop = String(stopText || '').trim();
     if (!cleanStop) return false;
 
-    // Demo page shortcut
     const demoStopInput = document.querySelector('#input-stop');
     const demoToggleBtn = document.querySelector('#btn-toggle-stop');
     if (demoStopInput && demoToggleBtn) {
@@ -494,61 +496,36 @@
       return true;
     }
 
-    const routeCard = findCardContainer('לאן נוסעים') || document;
-    const inputSel = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, mat-select, [role="combobox"]';
-    const getVisibleRouteInputs = () => Array.from(routeCard.querySelectorAll(inputSel)).filter(isVisible);
-
-    const findAddedStopInput = (beforeSet) => {
-      const current = getVisibleRouteInputs();
-      // 1. Direct match by SmartBase's exact label "עצירה שנוספה"
-      const byLabel = current.find(el => getAccessibleLabel(el).includes('עצירה שנוספה') || getAccessibleLabel(el).includes('עצירה'));
-      if (byLabel && (!beforeSet || !beforeSet.has(byLabel))) return byLabel;
-      // 2. Any newly added input that didn't exist before clicking "הוספת עצירה"
-      if (beforeSet) {
-        const newly = current.find(el => !beforeSet.has(el));
-        if (newly) return newly;
-      }
-      // 3. If 3+ inputs exist (origin, stop, dest), return the middle one
-      if (current.length >= 3) return current[1];
-      return null;
+    const findStopInputNow = () => {
+      const inputs = Array.from(document.querySelectorAll('input[type="text"]:not([readonly]):not(.MuiSelect-nativeInput)')).filter(isVisible);
+      return inputs.find(el => {
+        const lbl = getAccessibleLabel(el);
+        return lbl.includes('עצירה שנוספה') || lbl.includes('עצירה');
+      }) || null;
     };
 
-    const beforeInputs = getVisibleRouteInputs();
-    let stopInput = beforeInputs.length >= 3 ? findAddedStopInput(null) : null;
+    let stopInput = findStopInputNow();
 
     if (!stopInput) {
-      const beforeSet = new Set(beforeInputs);
-
-      // Search ALL visible elements across document (excluding #sb-qf-host) for exact text "הוספת עצירה"
+      // Click ONLY the exact text element "הוספת עצירה" (never the '+' icon!)
       const exactTextEls = Array.from(document.querySelectorAll('*'))
         .filter(el => {
           if (!isVisible(el)) return false;
-          if (el.tagName === 'SVG' || el.tagName === 'PATH' || el.tagName === 'MAT-ICON') return false;
-          const t = el.textContent.trim();
-          return t === 'הוספת עצירה';
+          if (el.tagName === 'SVG' || el.tagName === 'PATH' || el.tagName === 'BUTTON') return false;
+          return el.textContent.trim() === 'הוספת עצירה';
         });
 
-      // Deepest / innermost element carrying the exact phrase "הוספת עצירה" first (never the '+' icon!)
       exactTextEls.sort((a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length);
 
       const targets = [];
       if (exactTextEls.length > 0) {
         targets.push(exactTextEls[0]);
-        if (exactTextEls[0].parentElement && exactTextEls[0].parentElement !== routeCard) {
-          targets.push(exactTextEls[0].parentElement);
-        }
+        if (exactTextEls[0].parentElement) targets.push(exactTextEls[0].parentElement);
       }
 
       for (const target of targets) {
         robustClick(target);
-        for (let attempt = 0; attempt < 9; attempt++) {
-          await delay(140);
-          const found = findAddedStopInput(beforeSet);
-          if (found) {
-            stopInput = found;
-            break;
-          }
-        }
+        stopInput = await waitForCondition(findStopInputNow, 1600, 120);
         if (stopInput) break;
       }
     }
@@ -584,7 +561,17 @@
       }
     }
 
-    // Locate the "מהי מטרת הנסיעה" card container (even if it contains NO <input>!)
+    // Direct match on SmartBase's exact MUI Select (#targetId / .MuiSelect-select)
+    const directMuiSelect = Array.from(document.querySelectorAll('#targetId, .MuiSelect-select')).find(isVisible);
+    if (directMuiSelect) {
+      if ((directMuiSelect.textContent || '').trim() === cleanPurpose) {
+        highlightPageEl(directMuiSelect);
+        return true;
+      }
+      return await fillSmartDropdownOrInput(directMuiSelect, cleanPurpose);
+    }
+
+    // Locate the "מהי מטרת הנסיעה" card container
     const purposeCard = findCardContainerFlexible('מהי מטרת הנסיעה');
     if (!purposeCard) return false;
 
@@ -651,7 +638,7 @@
       const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (lbl) parts.push(lbl.textContent);
     }
-    const matField = el.closest('mat-form-field, .mat-mdc-form-field, .mat-form-field, label');
+    const matField = el.closest('.MuiFormControl-root, .MuiInputBase-root, mat-form-field, .mat-mdc-form-field, .mat-form-field, label');
     if (matField) parts.push(matField.textContent);
     else if (el.parentElement) {
       const sib = el.parentElement.querySelector('label, span, h3, h4');
@@ -737,17 +724,23 @@
       dest: '#input-dest',
       purpose: '#input-purpose',
       nextStep1Btn: '#btn-next-to-step2',
-      plate: '#input-vehicle-plate',
-      driverId: '#input-driver-id',
-      cmdId: '#input-cmd-id',
-      dispId: '#input-disp-id',
+      plate: '#vehicle-num, #input-vehicle-plate',
+      driverId: '[id="id 0"], #input-driver-id',
+      cmdId: '[id="id 1"], #input-cmd-id',
+      dispId: '[id="id 2"], #input-disp-id',
       nextStep2Btn: '#btn-next-to-step3',
       ackCheckbox: '#checkbox-ack-guidelines',
-      odometer: '#input-odometer'
+      odometer: '.MuiDialog-root input:not([type="hidden"]):not([type="checkbox"]), [role="dialog"] input:not([type="hidden"]):not([type="checkbox"]), #input-odometer'
     };
     if (knownIds[key]) {
-      const el = document.querySelector(knownIds[key]);
+      const el = Array.from(document.querySelectorAll(knownIds[key])).find(isVisible);
       if (el) return el;
+    }
+
+    // Exact SmartBase MUI continue button shortcut for active visible step
+    if (key === 'nextStep1Btn' || key === 'nextStep2Btn') {
+      const muiNext = Array.from(document.querySelectorAll('button[aria-label="continue"]')).find(isVisible);
+      if (muiNext) return muiNext;
     }
 
     const def = FIELD_DEFS.find(f => f.key === key);
@@ -765,7 +758,23 @@
       return cbs.find(cb => def.hints.some(h => getAccessibleLabel(cb).includes(h))) || cbs.find(isVisible) || null;
     }
 
-    const inputSelector = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea, mat-select, .mat-mdc-select, [role="combobox"]';
+    // Exact SmartBase MUI Step 1 route inputs by their real label ("מוצא", "עצירה שנוספה", "יעד")
+    if (key === 'origin' || key === 'stop' || key === 'dest') {
+      const textInputs = Array.from(document.querySelectorAll('input[type="text"]:not([readonly]):not(.MuiSelect-nativeInput)')).filter(isVisible);
+      if (key === 'origin') {
+        const m = textInputs.find(el => getAccessibleLabel(el).includes('מוצא'));
+        if (m) return m;
+      } else if (key === 'stop') {
+        const m = textInputs.find(el => getAccessibleLabel(el).includes('עצירה'));
+        if (m) return m;
+      } else if (key === 'dest') {
+        const m = textInputs.find(el => getAccessibleLabel(el).includes('יעד'));
+        if (m) return m;
+      }
+    }
+
+    // Never include [role="combobox"] or .MuiSelect-nativeInput or tel inputs when searching for text/ID inputs!
+    const inputSelector = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="tel"]):not([readonly]):not(.MuiSelect-nativeInput), select, textarea, .MuiSelect-select';
 
     if (scopeRoot !== document) {
       const cardInputs = Array.from(scopeRoot.querySelectorAll(inputSelector)).filter(isVisible);
@@ -804,10 +813,10 @@
 
   async function waitForOverlayToClose(timeoutMs = 700) {
     await waitForCondition(() => {
-      const backdrop = document.querySelector('.cdk-overlay-backdrop');
-      return !backdrop || !isVisible(backdrop);
+      const pop = document.querySelector('.MuiAutocomplete-listbox, .MuiMenu-list, .cdk-overlay-backdrop');
+      return !pop || !isVisible(pop);
     }, timeoutMs, 80);
-    await delay(100);
+    await delay(120);
   }
 
   // Scroll down & wait until SmartBase's on-screen "המשך" button is visible and enabled, then click it
@@ -1391,7 +1400,7 @@
           <div class="sheet-title-wrap">
             <span style="font-size:20px;">⚡</span>
             <div>
-              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v1.8</span></h2>
+              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v2.0</span></h2>
               <p id="qf-subtitle" class="sheet-sub">שלב 1 • תכנון נסיעה ומסלולים</p>
             </div>
           </div>
@@ -1542,8 +1551,9 @@
     if (extState.selectedVehiclePlate) {
       const plateEl = findField('plate');
       if (plateEl) {
-        setNativeInputValue(plateEl, extState.selectedVehiclePlate);
-        await delay(150);
+        // #vehicle-num in SmartBase is a React MUI Autocomplete — type plate AND select the matching option!
+        await fillSmartDropdownOrInput(plateEl, extState.selectedVehiclePlate);
+        await waitForOverlayToClose();
       }
     }
 
@@ -1605,9 +1615,8 @@
       }
     }
 
-    // Wait for SmartBase to resolve dispatcher's auto-phone & enable "המשך"
-    await delay(800);
-    const clickedNext = await clickEnabledNextButton('nextStep2Btn', 4000);
+    // Poll up to 5.5s for SmartBase server to resolve dispatcher's auto-phone & enable "המשך"
+    const clickedNext = await clickEnabledNextButton('nextStep2Btn', 5500);
     if (!clickedNext) return false;
 
     const arrivedStep3 = await waitForCondition(() => {
@@ -1631,20 +1640,19 @@
       saveData();
     }
 
-    // 1. Scroll down & check "קראתי והבנתי את ההנחיות." ONCE (never double-toggle!)
+    // 1. Scroll down & check MUI Checkbox "קראתי והבנתי את ההנחיות." ONCE
     const ackEl = findField('ackCheckbox');
     if (ackEl) {
-      try { ackEl.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
+      const clickTarget = ackEl.closest('label, .MuiFormControlLabel-root, .MuiCheckbox-root') || ackEl;
+      try { clickTarget.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
       await delay(150);
       const innerInput = ackEl.tagName === 'INPUT' ? ackEl : ackEl.querySelector('input[type="checkbox"]');
       const alreadyChecked = innerInput ? innerInput.checked : ackEl.getAttribute('aria-checked') === 'true';
       if (!alreadyChecked) {
-        // Click label/mat-checkbox once and verify
-        robustClick(ackEl);
+        robustClick(clickTarget);
         await delay(250);
-        const nowChecked = innerInput ? innerInput.checked : ackEl.getAttribute('aria-checked') === 'true';
-        if (!nowChecked && innerInput && innerInput !== ackEl) {
-          robustClick(innerInput);
+        if (innerInput && !innerInput.checked) {
+          innerInput.click();
         }
       }
     }
