@@ -266,6 +266,12 @@ public class MainActivity extends Activity {
                             }
                             tmp.delete();
                         }
+                        // Immediately hot-upgrade the running page on the UI thread!
+                        runOnUiThread(() -> {
+                            if (webView != null) {
+                                injectIfSmartBase(webView.getUrl());
+                            }
+                        });
                     }
                 }
             } catch (Exception ignored) {
