@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      1.5.0
+// @version      1.6.0
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: אשף רציף של כל השלבים ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '1.5.0';
+  const SCRIPT_VERSION = '1.6.0';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -258,13 +258,24 @@
   // ---------------------------------------------------------------------------
   // 3. Robust Angular / Material DOM Engine for smartbase.digital.idf.il
   // ---------------------------------------------------------------------------
+  // Strict visibility check that ALSO filters out offscreen Angular <mat-stepper> inactive panes!
   function isVisible(el) {
     if (!el || el.nodeType !== 1) return false;
     if (el.closest('#sb-qf-host')) return false;
+    if (el.closest('[aria-hidden="true"], .mat-horizontal-stepper-content-inactive, .cdk-visually-hidden')) return false;
     const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) return false;
     const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    if (rect.width <= 1 || rect.height <= 1) return false;
+    // Inactive horizontal stepper panes are translated outside [0, innerWidth]
+    if (rect.right <= 4 || rect.left >= window.innerWidth - 4) return false;
+    return true;
+  }
+
+  function hasVisibleText(phrase) {
+    const nodes = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, p, span, div, label, button, mat-card-title'))
+      .filter(el => el.children.length <= 1 && isVisible(el) && el.textContent.trim().includes(phrase));
+    return nodes.length > 0;
   }
 
   function delay(ms) {
@@ -323,12 +334,14 @@
     return true;
   }
 
-  // Search the entire visible DOM (outside excludeRoot) for a dropdown option matching targetText
-  function findVisibleOptionInDocument(targetText, excludeRoot) {
+  // Search the entire visible DOM (excluding ONLY the trigger/input itself — NOT the whole card!)
+  function findVisibleOptionInDocument(targetText, excludeEl) {
     const cleanTarget = String(targetText || '').trim();
     if (!cleanTarget) return null;
 
-    // 1. Check standard Angular CDK / Material / ARIA / Ionic / PrimeNG option elements first
+    const isExcluded = (el) => excludeEl && (el === excludeEl || excludeEl.contains(el) || el.contains(excludeEl));
+
+    // 1. Check standard Angular CDK / Material / ARIA / Ionic / PrimeNG / autocomplete option elements first
     const prioritySelectors = [
       '.cdk-overlay-container mat-option',
       '.cdk-overlay-container [role="option"]',
@@ -340,29 +353,28 @@
       'ion-select-option',
       'p-dropdownitem',
       '.ng-option',
-      '.MuiMenuItem-root'
+      '.MuiMenuItem-root',
+      'ul li'
     ].join(', ');
 
     const priorityNodes = Array.from(document.querySelectorAll(prioritySelectors))
-      .filter(el => isVisible(el) && (!excludeRoot || !excludeRoot.contains(el)));
+      .filter(el => isVisible(el) && !isExcluded(el));
 
     let match = priorityNodes.find(el => el.textContent.trim() === cleanTarget);
     if (match) return match;
     match = priorityNodes.find(el => el.textContent.trim().includes(cleanTarget));
     if (match) return match;
 
-    // 2. Fallback: ANY newly visible leaf/short element in overlays/modals/menus/lists matching exact text
+    // 2. Fallback: ANY visible leaf/short element in overlays/modals/lists matching exact text
     const genericNodes = Array.from(document.querySelectorAll('li, button, a, p, span, div'))
       .filter(el => {
-        if (!isVisible(el)) return false;
-        if (excludeRoot && excludeRoot.contains(el)) return false;
+        if (!isVisible(el) || isExcluded(el)) return false;
         if (el.children.length > 2) return false;
         const t = el.textContent.trim();
         return t === cleanTarget;
       });
 
     if (genericNodes.length > 0) {
-      // Prefer elements that are inside an overlay/dialog/popover or highest in DOM order (latest rendered)
       const inOverlay = genericNodes.find(el =>
         el.closest('.cdk-overlay-container, [role="listbox"], [role="dialog"], [role="menu"], .modal, .popover, .dropdown-menu, ul')
       );
@@ -372,7 +384,7 @@
   }
 
   // Handles native <select>, Angular mat-select, custom read-only dropdowns, and searchable autocomplete inputs
-  async function fillSmartDropdownOrInput(el, targetText, excludeCard) {
+  async function fillSmartDropdownOrInput(el, targetText) {
     if (!el || !targetText) return false;
     const cleanTarget = String(targetText).trim();
 
@@ -384,13 +396,13 @@
     if (isTextInput) {
       robustClick(el);
       setNativeInputValue(el, cleanTarget);
-      // Poll up to 800ms for autocomplete suggestions to appear and click matching item
-      for (let i = 0; i < 6; i++) {
+      // Poll up to 900ms for autocomplete suggestions to appear (in overlay OR inside card!) and click matching item
+      for (let i = 0; i < 7; i++) {
         await delay(140);
-        const opt = findVisibleOptionInDocument(cleanTarget, excludeCard || el.parentElement);
+        const opt = findVisibleOptionInDocument(cleanTarget, el);
         if (opt) {
           robustClick(opt);
-          await delay(140);
+          await delay(160);
           highlightPageEl(el);
           return true;
         }
@@ -403,7 +415,6 @@
     robustClick(el);
     for (let i = 0; i < 8; i++) {
       await delay(150);
-      // Check if an overlay search input appeared
       if (i === 1) {
         const overlaySearch = document.querySelector(
           '.cdk-overlay-container input[type="text"], .cdk-overlay-container input[type="search"], .cdk-overlay-container input:not([type="hidden"]):not([type="checkbox"])'
@@ -413,10 +424,10 @@
           await delay(220);
         }
       }
-      const opt = findVisibleOptionInDocument(cleanTarget, excludeCard || el);
+      const opt = findVisibleOptionInDocument(cleanTarget, el);
       if (opt) {
         robustClick(opt);
-        await delay(160);
+        await delay(180);
         highlightPageEl(el);
         return true;
       }
@@ -507,7 +518,7 @@
     }
 
     if (stopInput) {
-      await fillSmartDropdownOrInput(stopInput, cleanStop, routeCard);
+      await fillSmartDropdownOrInput(stopInput, cleanStop);
       return true;
     }
     return false;
@@ -580,7 +591,7 @@
     }
 
     for (const attemptEl of triggerAttempts) {
-      const ok = await fillSmartDropdownOrInput(attemptEl, cleanPurpose, purposeCard);
+      const ok = await fillSmartDropdownOrInput(attemptEl, cleanPurpose);
       if (ok) {
         highlightPageEl(purposeCard);
         return true;
@@ -758,15 +769,23 @@
     await delay(100);
   }
 
-  // Wait until SmartBase's "המשך" button is visible and enabled, then click it
-  async function clickEnabledNextButton(fieldKey, timeoutMs = 2500) {
+  // Scroll down & wait until SmartBase's on-screen "המשך" button is visible and enabled, then click it
+  async function clickEnabledNextButton(fieldKey, timeoutMs = 2800) {
+    try { window.scrollTo(0, document.body.scrollHeight); } catch (_) {}
     const btn = await waitForCondition(() => {
       const el = findField(fieldKey);
       if (!el || !isVisible(el)) return null;
-      const disabled = el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('mat-button-disabled');
+      const style = window.getComputedStyle(el);
+      const disabled =
+        el.disabled ||
+        el.getAttribute('aria-disabled') === 'true' ||
+        el.classList.contains('mat-button-disabled') ||
+        style.pointerEvents === 'none';
       return disabled ? null : el;
-    }, timeoutMs, 140);
+    }, timeoutMs, 150);
     if (btn) {
+      try { btn.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
+      await delay(140);
       robustClick(btn);
       return true;
     }
@@ -775,54 +794,61 @@
 
   // Auto-open "מילוי כרטיס עבודה" directly from SmartBase Home ("עדכונים") screen!
   async function ensureOnWorkTicketStep1() {
-    const isAlreadyStep1 = () => {
-      const t = document.body ? document.body.innerText : '';
-      return t.includes('תכנון הנסיעה') || t.includes('לאן נוסעים?');
-    };
-    if (isAlreadyStep1()) return true;
+    if (detectCurrentPageStep() === 1) return true;
 
-    // 1. Check if the "פתיחת פעולה חדשה" sheet is already open with "מילוי כרטיס עבודה"
-    let workTicketBtn = findButtonByText(['מילוי כרטיס עבודה']);
-    if (!workTicketBtn) {
-      // 2. Click "+ פעולה חדשה" button on Home screen
+    const findTicketRow = () => {
+      const exactNodes = Array.from(document.querySelectorAll('*'))
+        .filter(el => isVisible(el) && el.children.length <= 2 && el.textContent.trim() === 'מילוי כרטיס עבודה');
+      if (exactNodes.length === 0) return null;
+      exactNodes.sort((a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length);
+      return exactNodes[0];
+    };
+
+    // 1. Check if the "פתיחת פעולה חדשה" sheet is already open
+    let ticketTextNode = findTicketRow();
+    if (!ticketTextNode) {
       const newActionBtn = findButtonByText(['פעולה חדשה', '+ פעולה חדשה']);
       if (newActionBtn) {
         robustClick(newActionBtn);
       } else {
-        // Fallback: find any element carrying exact text "פעולה חדשה"
         const exact = Array.from(document.querySelectorAll('*')).find(el => isVisible(el) && el.children.length <= 2 && el.textContent.trim().includes('פעולה חדשה'));
         if (exact) robustClick(exact);
       }
-
-      workTicketBtn = await waitForCondition(() => {
-        const b = findButtonByText(['מילוי כרטיס עבודה']);
-        if (b) return b;
-        const nodes = Array.from(document.querySelectorAll('*')).filter(el => isVisible(el) && el.children.length <= 2 && el.textContent.trim() === 'מילוי כרטיס עבודה');
-        return nodes[0] || null;
-      }, 2600, 120);
+      ticketTextNode = await waitForCondition(findTicketRow, 2800, 140);
+      // Let the bottom-sheet slide-up animation settle completely before clicking!
+      if (ticketTextNode) await delay(420);
     }
 
-    if (workTicketBtn) {
-      robustClick(workTicketBtn);
-      const arrived = await waitForCondition(isAlreadyStep1, 3500, 150);
-      await delay(250);
-      return Boolean(arrived);
+    if (ticketTextNode) {
+      // Try clicking the row container first, and if needed the text element itself
+      const rowEl = ticketTextNode.closest('button, a, li, mat-list-item, ion-item, [role="button"], [role="listitem"]') ||
+        (ticketTextNode.parentElement && ticketTextNode.parentElement.getBoundingClientRect().height < 110 ? ticketTextNode.parentElement : null);
+
+      const candidates = rowEl ? [rowEl, ticketTextNode] : [ticketTextNode];
+      for (const target of candidates) {
+        robustClick(target);
+        const arrived = await waitForCondition(() => detectCurrentPageStep() === 1, 2200, 150);
+        if (arrived) {
+          await delay(300);
+          return true;
+        }
+      }
     }
     return false;
   }
 
+  // Strictly checks ON-SCREEN visible headings (never fooled by hidden Angular stepper steps in body.innerText!)
   function detectCurrentPageStep() {
-    const bodyText = document.body ? document.body.innerText : '';
-    if (bodyText.includes('חתימה דיגיטלית') || bodyText.includes('קראתי והבנתי את ההנחיות') || bodyText.includes('אישור וחתימה')) {
-      if (findField('ackCheckbox') || findField('odometer')) return 3;
+    if (hasVisibleText('חתימה דיגיטלית') || hasVisibleText('קראתי והבנתי את ההנחיות') || hasVisibleText('אישור וחתימה')) {
+      return 3;
     }
-    if (bodyText.includes('שיבוץ רכב וצוות') || bodyText.includes('בחירת מפקד משלח')) {
+    if (hasVisibleText('שיבוץ רכב וצוות') || hasVisibleText('בחירת מפקד משלח')) {
       return 2;
     }
-    if (bodyText.includes('תכנון הנסיעה') || bodyText.includes('לאן נוסעים?')) {
+    if (hasVisibleText('תכנון הנסיעה') || hasVisibleText('לאן נוסעים?')) {
       return 1;
     }
-    return 0; // Home / other page
+    return 0;
   }
 
   function buildUniqueSelector(el) {
@@ -1438,7 +1464,7 @@
     const routeCard = findCardContainer('לאן נוסעים');
     const originEl = findField('origin');
     if (originEl && cleanOrigin) {
-      await fillSmartDropdownOrInput(originEl, cleanOrigin, routeCard);
+      await fillSmartDropdownOrInput(originEl, cleanOrigin);
       await waitForOverlayToClose();
     }
 
@@ -1449,7 +1475,7 @@
 
     const destEl = findField('dest');
     if (destEl && cleanDest) {
-      await fillSmartDropdownOrInput(destEl, cleanDest, routeCard);
+      await fillSmartDropdownOrInput(destEl, cleanDest);
       await waitForOverlayToClose();
     }
 
