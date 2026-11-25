@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      1.0.0
-// @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מסלולים קבועים עם עריכת עצירה, מטרות מועדפות, רכבים, זיכרון קילומטראז', ת"ז קבועה ושיתוף הגדרות יחידה.
+// @version      1.2.0
+// @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מסלולים קבועים עם עריכת עצירה, 40 מטרות מועדפות, רכבים, ת"ז קבועה ומעבר אוטומטי בין שלבים.
 // @author       SmartBase QuickFill
 // @downloadURL  https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
 // @updateURL    https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
@@ -18,18 +18,17 @@
 (function () {
   'use strict';
 
-  // Prevent double injection
-  if (window.__SMARTBASE_QUICKFILL_LOADED__) return;
+  // Guard against SPA body wipes: only skip if host element is still attached
+  if (window.__SMARTBASE_QUICKFILL_LOADED__ && document.getElementById('sb-qf-host')) return;
   window.__SMARTBASE_QUICKFILL_LOADED__ = true;
 
-  // If running on the local demo page that already has its own built-in drawer,
-  // hide the demo's built-in FAB so the real Userscript takes over cleanly.
+  // Hide local demo's built-in FAB if running on smartbase.html test page
   const demoFab = document.getElementById('ext-fab');
   if (demoFab && document.getElementById('ext-drawer')) {
     demoFab.style.display = 'none';
   }
 
-  const STORAGE_KEY = 'sb_quickfill_prod_v1';
+  const STORAGE_KEY = 'sb_quickfill_v2';
 
   const TRIP_PURPOSES = [
     'תפקיד', 'נסיעה פרטית', 'אחזקה', 'חניית לילה', 'נסיעת מבחן לרכב',
@@ -42,31 +41,29 @@
     'נסיעה למוסך ללא מסמכי רכב', 'הכשרת צמ"ה', 'הכשרת רכב חשמלי', 'הכשרת מלגזה', 'היתר גרור 58'
   ];
 
-  // Field definitions tuned to real SmartBase (https://smartbase.digital.idf.il)
+  // Field definitions mapped to real SmartBase cards & fields (https://smartbase.digital.idf.il)
   const FIELD_DEFS = [
-    { key: 'origin', label: 'מוצא (שלב 1)', hints: ['מוצא', 'בסיס מוצא', 'origin'] },
-    { key: 'addStopBtn', label: 'כפתור הוספת עצירה', hints: ['הוספת עצירה', 'הוסף עצירה'], isButton: true },
-    { key: 'stop', label: 'תחנת עצירה (שלב 1)', hints: ['עצירה', 'תחנת עצירה', 'ביניים', 'stop'] },
-    { key: 'dest', label: 'יעד (שלב 1)', hints: ['יעד', 'יעד נסיעה', 'dest'] },
-    { key: 'purpose', label: 'מטרת הנסיעה (שלב 1)', hints: ['מהי מטרת הנסיעה', 'מטרת הנסיעה', 'תפקיד', 'purpose'] },
+    { key: 'origin', label: 'מוצא (שלב 1)', card: 'לאן נוסעים', hints: ['מוצא', 'בסיס מוצא', 'origin'] },
+    { key: 'addStopBtn', label: 'כפתור הוספת עצירה', card: 'לאן נוסעים', hints: ['הוספת עצירה', 'הוסף עצירה'], isButton: true },
+    { key: 'stop', label: 'תחנת עצירה (שלב 1)', card: 'לאן נוסעים', hints: ['עצירה', 'תחנת עצירה', 'ביניים', 'stop'] },
+    { key: 'dest', label: 'יעד (שלב 1)', card: 'לאן נוסעים', hints: ['יעד', 'יעד נסיעה', 'dest'] },
+    { key: 'purpose', label: 'מטרת הנסיעה (שלב 1)', card: 'מהי מטרת הנסיעה', hints: ['מהי מטרת הנסיעה', 'מטרת הנסיעה', 'תפקיד', 'purpose'] },
     { key: 'nextStep1Btn', label: 'כפתור המשך (שלב 1 ← 2)', hints: ['המשך', 'המשך לשיבוץ'], isButton: true },
-    { key: 'plate', label: 'מספר רכב (שלב 2)', hints: ["מס' לוחית רישוי/צ'", 'לוחית רישוי', 'מספר הרכב', 'מספר רכב', 'plate'] },
-    { key: 'driverId', label: 'ת"ז נהג (שלב 2)', hints: ['תעודת זהות נהג', 'נהג', 'driver'] },
-    { key: 'cmdId', label: 'ת"ז מפקד משימה (שלב 2)', hints: ['מפקד משימה', 'מפקד', 'cmd'] },
-    { key: 'dispId', label: 'ת"ז מפקד משלח (שלב 2)', hints: ['בחירת מפקד משלח', 'מפקד משלח', 'תעודת זהות', 'disp'] },
-    { key: 'nightCmdCheckbox', label: 'אישור מפקד לילה (שלב 2)', hints: ['הוספת אישור מפקד לילה', 'מפקד לילה'] },
+    { key: 'plate', label: 'מספר הרכב (שלב 2)', card: 'מספר הרכב', hints: ["מס' לוחית רישוי/צ'", 'לוחית רישוי', 'מספר הרכב', 'plate'] },
+    { key: 'driverId', label: 'ת"ז נהג (שלב 2)', card: 'בחירת נהג', hints: ['תעודת זהות', 'נהג', 'driver'] },
+    { key: 'cmdId', label: 'ת"ז מפקד משימה (שלב 2)', card: 'בחירת מפקד משימה', hints: ['תעודת זהות', 'מפקד משימה', 'cmd'] },
+    { key: 'dispId', label: 'ת"ז מפקד משלח (שלב 2)', card: 'בחירת מפקד משלח', hints: ['תעודת זהות', 'משלח', 'disp'] },
     { key: 'nextStep2Btn', label: 'כפתור המשך (שלב 2 ← 3)', hints: ['המשך', 'המשך לאישור'], isButton: true },
     { key: 'ackCheckbox', label: 'קראתי והבנתי (שלב 3)', hints: ['קראתי והבנתי את ההנחיות', 'קראתי והבנתי', 'הנחיות'] },
-    { key: 'odometer', label: 'קילומטראז\' (שלב 3)', hints: ['ק"מ', 'קילומטראז', 'קילומטר', 'odometer'] }
+    { key: 'odometer', label: 'קילומטראז\' (שלב 3)', card: 'קילומטראז', hints: ['ק"מ', 'קילומטראז', 'קילומטר', 'odometer'] }
   ];
 
   // ---------------------------------------------------------------------------
-  // 1. Local Storage Abstraction (GM_getValue / localStorage fallback)
+  // 1. Local Storage & Clipboard (Android Native Bridge -> GM -> localStorage)
   // ---------------------------------------------------------------------------
   function getDefaultData() {
     return {
       myId: '',
-      autoAdvance: true,
       purposeCounts: { 'תפקיד': 1 },
       lastOdometers: {},
       customSelectors: {},
@@ -87,6 +84,12 @@
 
   function storageGet(key) {
     try {
+      if (window.AndroidStorage && typeof window.AndroidStorage.get === 'function') {
+        const v = window.AndroidStorage.get(key);
+        if (v) return v;
+      }
+    } catch (_) {}
+    try {
       if (typeof GM_getValue === 'function') {
         const v = GM_getValue(key, null);
         if (v !== null && v !== undefined) return v;
@@ -101,6 +104,11 @@
 
   function storageSet(key, value) {
     try {
+      if (window.AndroidStorage && typeof window.AndroidStorage.set === 'function') {
+        window.AndroidStorage.set(key, value);
+      }
+    } catch (_) {}
+    try {
       if (typeof GM_setValue === 'function') {
         GM_setValue(key, value);
       }
@@ -108,6 +116,23 @@
     try {
       localStorage.setItem(key, value);
     } catch (_) {}
+  }
+
+  async function copyToClipboard(text, promptTitle) {
+    try {
+      if (window.AndroidStorage && typeof window.AndroidStorage.copyText === 'function') {
+        window.AndroidStorage.copyText(text);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {}
+    window.prompt(promptTitle || 'העתק:', text);
+    return false;
   }
 
   function loadData() {
@@ -118,7 +143,6 @@
       if (!parsed || typeof parsed !== 'object') return def;
       return {
         myId: typeof parsed.myId === 'string' ? parsed.myId.replace(/\D/g, '').slice(0, 9) : '',
-        autoAdvance: parsed.autoAdvance !== false,
         purposeCounts: parsed.purposeCounts && typeof parsed.purposeCounts === 'object' ? parsed.purposeCounts : def.purposeCounts,
         lastOdometers: parsed.lastOdometers && typeof parsed.lastOdometers === 'object' ? parsed.lastOdometers : {},
         customSelectors: parsed.customSelectors && typeof parsed.customSelectors === 'object' ? parsed.customSelectors : {},
@@ -137,12 +161,12 @@
     try {
       storageSet(STORAGE_KEY, JSON.stringify(appData));
     } catch (_) {
-      showToast('שגיאה בשמירה מקומית');
+      showToast('לא ניתן לשמור לאחסון המקומי');
     }
   }
 
   // ---------------------------------------------------------------------------
-  // 2. Helpers & State
+  // 2. Helpers & State (100% faithful to Gemini's smartbase.html logic)
   // ---------------------------------------------------------------------------
   function escapeHtml(str) {
     return String(str ?? '')
@@ -194,15 +218,16 @@
       tripType: tripType || 'נסיעה מנהלתית'
     });
     saveData();
-    showToast(`מסלול חדש נשמר: ${routeName}`);
+    showToast(`מסלול חדש נשמר אוטומטית: ${routeName}`);
     return 0;
   }
 
-  const uiState = {
+  const extState = {
     open: false,
-    tab: 'fill', // 'fill' | 'manage' | 'calibrate'
+    tab: 'fill', // 'fill' | 'manage' (exact 2 tabs from Gemini design)
     step: 1,
     editingMyId: !appData.myId,
+    showAdvanced: false,
     selectedRouteIdx: appData.routes.length > 0 ? '0' : '',
     quickOrigin: appData.routes[0]?.origin || '',
     quickStop: appData.routes[0]?.stop || '',
@@ -223,7 +248,7 @@
   };
 
   // ---------------------------------------------------------------------------
-  // 3. SPA-Safe DOM Engine (React / Angular / Vue / Native)
+  // 3. Angular Material / SPA-Safe DOM Engine for smartbase.digital.idf.il
   // ---------------------------------------------------------------------------
   function isVisible(el) {
     if (!el || el.nodeType !== 1) return false;
@@ -237,73 +262,6 @@
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  function setNativeInputValue(el, value) {
-    if (!el) return false;
-    const strVal = String(value ?? '');
-    el.focus();
-
-    if (el.tagName === 'SELECT') {
-      const opts = Array.from(el.options);
-      const match = opts.find(o => o.value === strVal || o.text.trim() === strVal || o.text.includes(strVal));
-      if (match) {
-        el.value = match.value;
-      } else {
-        el.value = strVal;
-      }
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      el.dispatchEvent(new Event('blur', { bubbles: true }));
-      highlightPageEl(el);
-      return true;
-    }
-
-    const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-    if (setter) {
-      setter.call(el, strVal);
-    } else {
-      el.value = strVal;
-    }
-
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
-    el.dispatchEvent(new Event('blur', { bubbles: true }));
-    highlightPageEl(el);
-    return true;
-  }
-
-  async function selectCustomDropdown(triggerEl, optionText) {
-    if (!triggerEl || !optionText) return false;
-    if (triggerEl.tagName === 'SELECT') {
-      return setNativeInputValue(triggerEl, optionText);
-    }
-
-    // Angular Material searchable autocomplete (like מוצא / יעד in SmartBase)
-    if (triggerEl.tagName === 'INPUT') {
-      setNativeInputValue(triggerEl, optionText);
-      triggerEl.click();
-      await delay(300);
-    } else {
-      triggerEl.click();
-      await delay(280);
-    }
-
-    // Search opened option elements (Angular Material CDK overlay, Ionic, MUI, ARIA listbox)
-    const candidates = Array.from(document.querySelectorAll(
-      '.cdk-overlay-container mat-option, .cdk-overlay-container [role="option"], mat-option, [role="option"], ion-select-option, ion-item, .MuiMenuItem-root, li'
-    )).filter(el => !el.closest('#sb-qf-host') && isVisible(el));
-
-    const exact = candidates.find(el => el.textContent.trim() === optionText);
-    const partial = exact || candidates.find(el => el.textContent.trim().includes(optionText));
-    if (partial) {
-      partial.click();
-      await delay(120);
-      return true;
-    }
-    return triggerEl.tagName === 'INPUT';
-  }
-
   function highlightPageEl(el) {
     if (!el || !el.style) return;
     const prevOutline = el.style.outline;
@@ -313,32 +271,99 @@
     setTimeout(() => {
       el.style.outline = prevOutline;
       el.style.backgroundColor = prevBg;
-    }, 1000);
+    }, 1050);
+  }
+
+  function setNativeInputValue(el, value) {
+    if (!el) return false;
+    const strVal = String(value ?? '');
+    el.focus();
+
+    if (el.tagName === 'SELECT') {
+      const opts = Array.from(el.options);
+      const match = opts.find(o => o.value === strVal || o.text.trim() === strVal || o.text.includes(strVal));
+      el.value = match ? match.value : strVal;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new Event('blur', { bubbles: true }));
+      highlightPageEl(el);
+      return true;
+    }
+
+    const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (setter) setter.call(el, strVal);
+    else el.value = strVal;
+
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+    highlightPageEl(el);
+    return true;
+  }
+
+  async function fillSmartDropdownOrInput(el, targetText) {
+    if (!el || !targetText) return false;
+    if (el.tagName === 'SELECT') {
+      return setNativeInputValue(el, targetText);
+    }
+
+    const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+    if (isInput) {
+      el.click();
+      setNativeInputValue(el, targetText);
+      await delay(320);
+    } else {
+      el.click();
+      await delay(320);
+      const overlaySearch = document.querySelector(
+        '.cdk-overlay-container input[type="text"], .cdk-overlay-container input[type="search"], .cdk-overlay-container input:not([type="hidden"]):not([type="checkbox"])'
+      );
+      if (overlaySearch && isVisible(overlaySearch)) {
+        setNativeInputValue(overlaySearch, targetText);
+        await delay(280);
+      }
+    }
+
+    const candidates = Array.from(document.querySelectorAll(
+      '.cdk-overlay-container mat-option, .cdk-overlay-container [role="option"], mat-option, [role="option"], ion-select-option, ion-item, .MuiMenuItem-root, .cdk-overlay-container li'
+    )).filter(node => !node.closest('#sb-qf-host') && isVisible(node));
+
+    const exact = candidates.find(node => node.textContent.trim() === targetText);
+    const partial = exact || candidates.find(node => node.textContent.trim().includes(targetText));
+    if (partial) {
+      partial.click();
+      await delay(140);
+      highlightPageEl(el);
+      return true;
+    }
+
+    return isInput;
   }
 
   function getAccessibleLabel(el) {
     const parts = [];
-    if (el.getAttribute('aria-label')) parts.push(el.getAttribute('aria-label'));
-    if (el.getAttribute('placeholder')) parts.push(el.getAttribute('placeholder'));
-    if (el.getAttribute('name')) parts.push(el.getAttribute('name'));
+    ['aria-label', 'placeholder', 'name', 'formcontrolname', 'id'].forEach(attr => {
+      const v = el.getAttribute(attr);
+      if (v) parts.push(v);
+    });
     if (el.id) {
-      parts.push(el.id);
       const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (lbl) parts.push(lbl.textContent);
     }
-    const parentLabel = el.closest('label');
-    if (parentLabel) parts.push(parentLabel.textContent);
-    const parentCard = el.parentElement;
-    if (parentCard) {
-      const siblingLabel = parentCard.querySelector('label, h3, h4, span');
-      if (siblingLabel && siblingLabel !== el) parts.push(siblingLabel.textContent);
+    const matField = el.closest('mat-form-field, .mat-mdc-form-field, .mat-form-field, label');
+    if (matField) parts.push(matField.textContent);
+    else if (el.parentElement) {
+      const sib = el.parentElement.querySelector('label, span, h3, h4');
+      if (sib && sib !== el) parts.push(sib.textContent);
     }
     return parts.join(' ').replace(/\s+/g, ' ').trim();
   }
 
-  function findButtonByText(textVariants) {
+  function findButtonByText(textVariants, root = document) {
     const list = Array.isArray(textVariants) ? textVariants : [textVariants];
-    const buttons = Array.from(document.querySelectorAll('button, [role="button"], a.btn, input[type="button"], input[type="submit"]'))
+    const buttons = Array.from(root.querySelectorAll('button, [role="button"], a.btn, input[type="button"], input[type="submit"], .mat-mdc-button, .mat-button'))
       .filter(el => !el.closest('#sb-qf-host') && isVisible(el));
 
     for (const txt of list) {
@@ -349,11 +374,34 @@
       const partial = buttons.find(b => b.textContent.trim().includes(txt));
       if (partial) return partial;
     }
+    const clickables = Array.from(root.querySelectorAll('div, span, p, label'))
+      .filter(el => !el.closest('#sb-qf-host') && el.children.length <= 2 && isVisible(el));
+    for (const txt of list) {
+      const match = clickables.find(el => el.textContent.trim() === txt);
+      if (match) return match;
+    }
+    return null;
+  }
+
+  function findCardContainer(headingText) {
+    if (!headingText) return null;
+    const nodes = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, p, span, div, label, mat-card-title'))
+      .filter(el => !el.closest('#sb-qf-host') && el.children.length === 0 && isVisible(el) && el.textContent.trim().includes(headingText));
+
+    for (const heading of nodes) {
+      let cur = heading.parentElement;
+      for (let depth = 0; cur && depth < 6; depth++) {
+        const hasInteractive = cur.querySelector('input, select, mat-select, [role="combobox"], button');
+        if (hasInteractive && cur.getBoundingClientRect().height < window.innerHeight * 0.85) {
+          return cur;
+        }
+        cur = cur.parentElement;
+      }
+    }
     return null;
   }
 
   function findField(key) {
-    // 1. Custom calibrated selector has highest priority
     const customSel = appData.customSelectors && appData.customSelectors[key];
     if (customSel) {
       try {
@@ -362,7 +410,6 @@
       } catch (_) {}
     }
 
-    // 2. Demo / Known IDs fallback
     const knownIds = {
       origin: '#input-origin',
       addStopBtn: '#btn-toggle-stop',
@@ -383,56 +430,64 @@
       if (el) return el;
     }
 
-    // 3. Heuristic Hebrew label / placeholder / button text matching
     const def = FIELD_DEFS.find(f => f.key === key);
     if (!def) return null;
 
+    const scopeRoot = (def.card && findCardContainer(def.card)) || document;
+
     if (def.isButton) {
-      return findButtonByText(def.hints);
+      return findButtonByText(def.hints, scopeRoot) || findButtonByText(def.hints, document);
     }
 
-    if (key === 'ackCheckbox' || key === 'nightCmdCheckbox') {
-      const cbs = Array.from(document.querySelectorAll('input[type="checkbox"], mat-checkbox, [role="checkbox"]')).filter(el => !el.closest('#sb-qf-host'));
+    if (key === 'ackCheckbox') {
+      const cbs = Array.from(document.querySelectorAll('input[type="checkbox"], mat-checkbox, [role="checkbox"]'))
+        .filter(el => !el.closest('#sb-qf-host'));
       return cbs.find(cb => def.hints.some(h => getAccessibleLabel(cb).includes(h))) || cbs.find(isVisible) || null;
     }
 
-    const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea, [role="combobox"], mat-select, .mat-mdc-select'))
-      .filter(el => !el.closest('#sb-qf-host') && isVisible(el));
+    const inputSelector = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea, mat-select, .mat-mdc-select, [role="combobox"]';
 
+    if (scopeRoot !== document) {
+      const cardInputs = Array.from(scopeRoot.querySelectorAll(inputSelector)).filter(el => !el.closest('#sb-qf-host') && isVisible(el));
+      for (const hint of def.hints) {
+        const found = cardInputs.find(el => getAccessibleLabel(el).toLowerCase().includes(hint.toLowerCase()));
+        if (found) return found;
+      }
+      if (cardInputs.length === 1) return cardInputs[0];
+      if (key === 'dispId' && cardInputs.length >= 1) return cardInputs[0];
+    }
+
+    const allInputs = Array.from(document.querySelectorAll(inputSelector)).filter(el => !el.closest('#sb-qf-host') && isVisible(el));
     for (const hint of def.hints) {
-      const found = inputs.find(el => getAccessibleLabel(el).toLowerCase().includes(hint.toLowerCase()));
+      const found = allInputs.find(el => getAccessibleLabel(el).toLowerCase().includes(hint.toLowerCase()));
       if (found) return found;
     }
     return null;
   }
 
   function detectCurrentPageStep() {
-    // Check visible elements on SmartBase page to auto-select the matching step in the drawer
-    const originEl = findField('origin');
-    const plateEl = findField('plate');
-    const ackEl = findField('ackCheckbox');
-    const odoEl = findField('odometer');
-
-    if ((ackEl && isVisible(ackEl)) || (odoEl && isVisible(odoEl))) return 3;
-    if (plateEl && isVisible(plateEl)) return 2;
-    if (originEl && isVisible(originEl)) return 1;
-    return uiState.step;
+    const bodyText = document.body ? document.body.innerText : '';
+    if (bodyText.includes('חתימה דיגיטלית') || bodyText.includes('קראתי והבנתי את ההנחיות') || bodyText.includes('אישור וחתימה')) {
+      if (findField('ackCheckbox') || findField('odometer')) return 3;
+    }
+    if (bodyText.includes('שיבוץ רכב וצוות') || bodyText.includes('בחירת מפקד משלח')) {
+      return 2;
+    }
+    if (bodyText.includes('תכנון הנסיעה') || bodyText.includes('לאן נוסעים?')) {
+      return 1;
+    }
+    return extState.step;
   }
 
   function buildUniqueSelector(el) {
     if (!el || el.nodeType !== 1) return '';
     if (el.id) return `#${CSS.escape(el.id)}`;
-    if (el.getAttribute('name')) {
-      const sel = `${el.tagName.toLowerCase()}[name="${CSS.escape(el.getAttribute('name'))}"]`;
-      if (document.querySelectorAll(sel).length === 1) return sel;
-    }
-    if (el.getAttribute('formcontrolname')) {
-      const sel = `${el.tagName.toLowerCase()}[formcontrolname="${CSS.escape(el.getAttribute('formcontrolname'))}"]`;
-      if (document.querySelectorAll(sel).length === 1) return sel;
-    }
-    if (el.getAttribute('data-testid')) {
-      const sel = `[data-testid="${CSS.escape(el.getAttribute('data-testid'))}"]`;
-      if (document.querySelectorAll(sel).length === 1) return sel;
+    for (const attr of ['formcontrolname', 'name', 'data-testid']) {
+      const val = el.getAttribute(attr);
+      if (val) {
+        const sel = `${el.tagName.toLowerCase()}[${attr}="${CSS.escape(val)}"]`;
+        if (document.querySelectorAll(sel).length === 1) return sel;
+      }
     }
     const path = [];
     let cur = el;
@@ -441,9 +496,7 @@
       const parent = cur.parentElement;
       if (parent) {
         const siblings = Array.from(parent.children).filter(c => c.tagName === cur.tagName);
-        if (siblings.length > 1) {
-          part += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
-        }
+        if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
       }
       path.unshift(part);
       cur = parent;
@@ -451,7 +504,6 @@
     return path.join(' > ');
   }
 
-  // Try to read a resolved person's name near an ID input on SmartBase and auto-save it
   function tryLearnPersonNameNearInput(inputEl, idVal, roleLabel) {
     const cleanId = String(idVal || '').replace(/\D/g, '');
     if (cleanId.length !== 9 || cleanId === appData.myId) return;
@@ -459,31 +511,35 @@
 
     setTimeout(() => {
       let discoveredName = '';
-      if (inputEl && inputEl.parentElement) {
-        const container = inputEl.closest('div, section, form') || inputEl.parentElement;
-        const textCandidates = Array.from(container.querySelectorAll('p, span, div, strong'))
-          .filter(n => n !== inputEl && !n.contains(inputEl) && isVisible(n))
-          .map(n => n.textContent.trim())
-          .filter(t => t.length >= 3 && t.length <= 50 && /[\u0590-\u05FF]/.test(t));
+      if (inputEl) {
+        const card = inputEl.closest('mat-card, section, form, div') || inputEl.parentElement;
+        if (card) {
+          const texts = Array.from(card.querySelectorAll('p, span, div, strong'))
+            .filter(n => n !== inputEl && !n.contains(inputEl) && isVisible(n))
+            .map(n => n.textContent.trim())
+            .filter(t => t.length >= 3 && t.length <= 45 && /[\u0590-\u05FF]/.test(t));
 
-        const match = textCandidates.find(t => t.includes('זוהה') || t.includes(cleanId));
-        if (match) {
-          discoveredName = match
-            .replace(/✓|זוהה ב-SmartBase:?/g, '')
-            .replace(new RegExp(`\\(?${cleanId}\\)?`, 'g'), '')
-            .trim();
+          const match = texts.find(t =>
+            t.includes('זוהה') ||
+            (!t.includes('תעודת זהות') && !t.includes('בחירת') && !t.includes('נייד') && !t.includes('אני ') && t.split(' ').length >= 2)
+          );
+          if (match) {
+            discoveredName = match
+              .replace(/✓|זוהה ב-SmartBase:?/g, '')
+              .replace(new RegExp(`\\(?${cleanId}\\)?`, 'g'), '')
+              .trim();
+          }
         }
       }
-
       const finalName = discoveredName ? `${discoveredName} (${roleLabel})` : `${roleLabel} (${cleanId.slice(-4)})`;
       appData.people.push({ name: finalName, id: cleanId, role: roleLabel });
       saveData();
       showToast(`נשמר אוטומטית למאגר: ${finalName}`);
-    }, 450);
+    }, 650);
   }
 
   // ---------------------------------------------------------------------------
-  // 4. Shadow DOM UI (Zero External Dependencies, 100% Style-Isolated)
+  // 4. Shadow DOM UI — EXACT Match to Gemini's smartbase.html Drawer & FAB
   // ---------------------------------------------------------------------------
   const host = document.createElement('div');
   host.id = 'sb-qf-host';
@@ -494,101 +550,108 @@
 
   shadow.innerHTML = `
     <style>
-      * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+      * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
       :host { direction: rtl; color: #1e293b; }
 
-      .fab {
+      .quickfill-fab {
         position: fixed;
-        bottom: 90px;
-        left: 14px;
+        bottom: 92px;
+        left: 16px;
         z-index: 2147483646;
-        background: linear-gradient(135deg, #5b4ce6 0%, #4334c9 100%);
-        color: #fff;
-        border: 2px solid rgba(255,255,255,0.45);
+        background: linear-gradient(135deg, #5b4ce6 0%, #4637cc 100%);
+        color: #ffffff;
+        border: 2px solid rgba(255, 255, 255, 0.38);
         border-radius: 9999px;
-        padding: 10px 15px;
-        font-size: 13px;
+        padding: 11px 17px;
+        font-size: 14px;
         font-weight: 800;
-        box-shadow: 0 8px 22px rgba(42, 31, 130, 0.45);
+        box-shadow: 0 12px 28px rgba(42, 31, 130, 0.42);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        transition: transform .15s ease;
-        -webkit-tap-highlight-color: transparent;
+        gap: 7px;
+        transition: transform 0.15s ease;
       }
-      .fab:active { transform: scale(0.95); }
+      .quickfill-fab:active { transform: scale(0.95); }
 
-      .overlay {
+      .drawer-overlay {
         display: none;
         position: fixed;
         inset: 0;
-        background: rgba(15, 23, 42, 0.55);
-        backdrop-filter: blur(3px);
         z-index: 2147483647;
+        background: rgba(2, 6, 23, 0.52);
+        backdrop-filter: blur(3px);
         align-items: flex-end;
         justify-content: center;
       }
-      .overlay.open { display: flex; }
+      .drawer-overlay.open { display: flex; }
 
       .sheet {
         background: #ffffff;
         width: 100%;
-        max-width: 440px;
+        max-width: 448px;
         max-height: 88vh;
         border-radius: 24px 24px 0 0;
-        box-shadow: 0 -10px 40px rgba(0,0,0,0.3);
+        box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.28);
         display: flex;
         flex-direction: column;
         overflow: hidden;
       }
       @media (min-width: 640px) {
-        .overlay { align-items: center; padding: 16px; }
+        .drawer-overlay { align-items: center; padding: 16px; }
         .sheet { border-radius: 24px; }
       }
 
-      .header {
+      .sheet-header {
+        padding: 15px 16px 12px;
         background: #0f172a;
-        color: #fff;
-        padding: 14px 16px;
+        color: #ffffff;
         display: flex;
         align-items: center;
         justify-content: space-between;
       }
-      .header-title { font-size: 14px; font-weight: 800; margin: 0; }
-      .header-sub { font-size: 11px; color: #c7d2fe; margin: 2px 0 0; }
+      .sheet-title-wrap { display: flex; align-items: center; gap: 8px; }
+      .sheet-title { font-size: 14px; font-weight: 800; margin: 0; }
+      .sheet-sub { font-size: 11px; color: #c7d2fe; margin: 2px 0 0; }
       .close-btn {
-        width: 32px; height: 32px; border-radius: 50%;
-        border: none; background: rgba(255,255,255,0.12); color: #fff;
+        width: 32px; height: 32px; border-radius: 9999px; border: none;
+        background: rgba(255, 255, 255, 0.12); color: #ffffff;
         font-size: 14px; font-weight: 700; cursor: pointer;
       }
 
       .tabs {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 4px;
+        grid-template-columns: 1fr 1fr;
         background: #f1f5f9;
         padding: 4px;
-        margin: 10px 12px 4px;
+        margin: 12px 12px 4px;
         border-radius: 12px;
+        gap: 4px;
       }
-      .tab {
-        border: none; background: transparent; color: #475569;
-        padding: 8px 4px; border-radius: 9px; font-size: 12px; font-weight: 700;
-        cursor: pointer; transition: all .15s;
+      .tab-btn {
+        border: none;
+        background: transparent;
+        padding: 8px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 800;
+        color: #475569;
+        cursor: pointer;
+        transition: all .15s;
       }
-      .tab.active {
-        background: #fff; color: #5b4ce6;
+      .tab-btn.active {
+        background: #ffffff;
+        color: #5b4ce6;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       }
 
-      .step-pills {
+      .step-bar {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 6px;
-        padding: 6px 12px 4px;
+        padding: 6px 14px 2px;
       }
-      .step-pill {
+      .step-chip {
         border: 1px solid #e2e8f0;
         background: #f8fafc;
         color: #475569;
@@ -598,23 +661,23 @@
         font-weight: 700;
         cursor: pointer;
       }
-      .step-pill.active {
+      .step-chip.active {
         background: #5b4ce6;
         border-color: #5b4ce6;
-        color: #fff;
+        color: #ffffff;
       }
 
       .body {
-        padding: 12px 14px 18px;
+        padding: 14px;
         overflow-y: auto;
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 14px;
       }
 
       .card {
-        background: #f8fafc;
+        background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 16px;
         padding: 12px;
@@ -622,134 +685,168 @@
         flex-direction: column;
         gap: 8px;
       }
-      .card.accent {
-        background: #eef2ff;
-        border-color: #c7d2fe;
-      }
-      .card.green {
-        background: #ecfdf5;
-        border-color: #a7f3d0;
-      }
+      .card.slate { background: #f8fafc; }
+      .card.indigo { background: rgba(238, 242, 255, 0.85); border-color: #c7d2fe; }
+      .card.emerald { background: #ecfdf5; border-color: #a7f3d0; color: #064e3b; }
 
-      .lbl { font-size: 12px; font-weight: 800; color: #334155; display: block; margin-bottom: 3px; }
-      .sub-lbl { font-size: 11px; font-weight: 700; color: #64748b; display: block; margin-bottom: 3px; }
+      .lbl { display: block; font-size: 12px; font-weight: 800; color: #1e293b; margin-bottom: 4px; }
+      .sub-lbl { display: block; font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 3px; }
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
 
       .input, .select {
         width: 100%;
         padding: 9px 10px;
-        border-radius: 11px;
+        border-radius: 12px;
         border: 1px solid #cbd5e1;
-        background: #fff;
-        color: #0f172a;
-        font-size: 13px;
+        background: #ffffff;
+        color: #1e293b;
+        font-size: 12px;
         font-weight: 600;
         outline: none;
       }
-      .input:focus, .select:focus { border-color: #5b4ce6; box-shadow: 0 0 0 2px rgba(91,76,230,0.15); }
-      .input.stop-highlight { border: 2px solid #34d399; }
+      .input:focus, .select:focus { border-color: #5b4ce6; }
+      .input.stop-edit { border: 2px solid #6ee7b7; font-weight: 800; }
+      .input.stop-edit:focus { border-color: #10b981; }
 
-      .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-      .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
-      .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-
-      .btn {
-        border: none;
-        border-radius: 14px;
-        padding: 12px 14px;
-        font-size: 13px;
+      .pill-btn {
+        padding: 9px 10px;
+        border-radius: 12px;
+        font-size: 12px;
         font-weight: 800;
+        border: 1.5px solid #5b4ce6;
+        background: #ffffff;
+        color: #5b4ce6;
         cursor: pointer;
         width: 100%;
-        transition: opacity .15s;
       }
-      .btn:active { opacity: 0.85; }
-      .btn-primary { background: #5b4ce6; color: #fff; box-shadow: 0 6px 16px rgba(91,76,230,0.3); }
-      .btn-dark { background: #0f172a; color: #fff; padding: 9px 12px; font-size: 12px; }
-      .btn-outline { background: #fff; color: #5b4ce6; border: 1.5px solid #5b4ce6; padding: 8px 10px; font-size: 12px; }
-      .btn-outline.active { background: #5b4ce6; color: #fff; }
-      .btn-sm { width: auto; padding: 6px 10px; font-size: 11px; border-radius: 10px; }
-      .btn-danger { background: transparent; color: #e11d48; border: none; font-size: 11px; font-weight: 800; cursor: pointer; padding: 4px 6px; }
+      .pill-btn.active { background: #5b4ce6; color: #ffffff; }
 
-      .list-item {
+      .run-btn {
+        width: 100%;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: none;
+        background: #5b4ce6;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 800;
+        box-shadow: 0 8px 20px rgba(91, 76, 230, 0.3);
+        cursor: pointer;
+      }
+      .run-btn:active { opacity: 0.88; }
+
+      .dark-btn {
+        width: 100%;
+        padding: 9px;
+        border-radius: 12px;
+        border: none;
+        background: #0f172a;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      .sm-btn {
+        padding: 6px 11px;
+        border-radius: 10px;
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #334155;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .sm-btn.primary { background: #5b4ce6; border-color: #5b4ce6; color: #ffffff; }
+      .sm-btn.emerald { background: #059669; border-color: #059669; color: #ffffff; }
+
+      .list-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        background: #fff;
-        border: 1px solid #e2e8f0;
+        background: #f8fafc;
         padding: 7px 10px;
-        border-radius: 10px;
+        border-radius: 12px;
         font-size: 12px;
-        font-weight: 600;
+        gap: 8px;
       }
-      .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: #334155; }
+      .del-btn { border: none; background: transparent; color: #e11d48; font-size: 11px; font-weight: 800; cursor: pointer; padding: 2px 6px; }
 
       .toast {
+        display: none;
         position: fixed;
-        top: 14px;
+        top: 16px;
         left: 50%;
         transform: translateX(-50%);
+        z-index: 2147483647;
         background: #0f172a;
-        color: #fff;
-        padding: 10px 16px;
-        border-radius: 14px;
+        color: #ffffff;
         font-size: 12px;
         font-weight: 800;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-        z-index: 2147483647;
-        display: none;
-        max-width: 90vw;
+        padding: 10px 16px;
+        border-radius: 16px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+        max-width: 92vw;
         text-align: center;
       }
       .toast.show { display: block; }
 
       .calib-banner {
+        display: none;
         position: fixed;
-        top: 14px;
+        top: 16px;
         left: 50%;
         transform: translateX(-50%);
+        z-index: 2147483647;
         background: #dc2626;
         color: #fff;
-        padding: 10px 16px;
+        padding: 10px 14px;
         border-radius: 14px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 800;
-        box-shadow: 0 10px 30px rgba(220,38,38,0.45);
-        z-index: 2147483647;
-        display: none;
         align-items: center;
         gap: 10px;
+        box-shadow: 0 10px 25px rgba(220,38,38,0.4);
       }
       .calib-banner.show { display: flex; }
     </style>
 
-    <button id="qf-fab" class="fab" type="button">⚡ מילוי מהיר</button>
+    <button id="qf-fab" type="button" class="quickfill-fab">
+      <span>⚡</span>
+      <span>מילוי מהיר</span>
+    </button>
 
     <div id="qf-toast" class="toast"></div>
     <div id="qf-calib-banner" class="calib-banner">
-      <span id="qf-calib-text">לחץ על השדה בדף...</span>
-      <button id="qf-calib-cancel" type="button" style="background:#fff;color:#dc2626;border:none;border-radius:8px;padding:4px 8px;font-weight:800;cursor:pointer;">ביטול</button>
+      <span id="qf-calib-text">גע בשדה בדף...</span>
+      <button id="qf-calib-cancel" type="button" class="sm-btn">ביטול</button>
     </div>
 
-    <div id="qf-overlay" class="overlay">
+    <div id="qf-drawer" class="drawer-overlay">
       <div class="sheet">
-        <div class="header">
-          <div>
-            <h2 class="header-title">⚡ SmartBase מילוי מהיר</h2>
-            <p id="qf-subtitle" class="header-sub">שלב 1 • תכנון נסיעה</p>
+        <div class="sheet-header">
+          <div class="sheet-title-wrap">
+            <span style="font-size:18px;">⚡</span>
+            <div>
+              <h2 class="sheet-title">תוסף מילוי מהיר - SmartBase</h2>
+              <p id="qf-subtitle" class="sheet-sub">שלב 1 • תכנון נסיעה ומסלולים</p>
+            </div>
           </div>
-          <button id="qf-close" class="close-btn" type="button">✕</button>
+          <button id="qf-close" type="button" class="close-btn">✕</button>
         </div>
 
         <div class="tabs">
-          <button id="tab-fill" class="tab active" type="button">⚡ מילוי</button>
-          <button id="tab-manage" class="tab" type="button">⚙️ רשימות</button>
-          <button id="tab-calibrate" class="tab" type="button">🔧 כיול</button>
+          <button id="tab-fill" type="button" class="tab-btn active">⚡ מילוי מהיר</button>
+          <button id="tab-manage" type="button" class="tab-btn">⚙️ ניהול רשימות ות"ז</button>
         </div>
 
-        <div id="qf-step-pills" class="step-pills">
-          <button class="step-pill" data-step="1" type="button">1. נסיעה</button>
-          <button class="step-pill" data-step="2" type="button">2. רכב וצוות</button>
-          <button class="step-pill" data-step="3" type="button">3. חתימה וק"מ</button>
+        <div id="qf-step-bar" class="step-bar">
+          <button type="button" class="step-chip" data-step="1">שלב 1: נסיעה</button>
+          <button type="button" class="step-chip" data-step="2">שלב 2: רכב וצוות</button>
+          <button type="button" class="step-chip" data-step="3">שלב 3: חתימה וק"מ</button>
         </div>
 
         <div id="qf-body" class="body"></div>
@@ -758,11 +855,11 @@
   `;
 
   const fab = shadow.getElementById('qf-fab');
-  const overlay = shadow.getElementById('qf-overlay');
+  const drawer = shadow.getElementById('qf-drawer');
   const closeBtn = shadow.getElementById('qf-close');
   const subtitleEl = shadow.getElementById('qf-subtitle');
+  const stepBar = shadow.getElementById('qf-step-bar');
   const bodyEl = shadow.getElementById('qf-body');
-  const stepPillsEl = shadow.getElementById('qf-step-pills');
   const toastEl = shadow.getElementById('qf-toast');
   const calibBanner = shadow.getElementById('qf-calib-banner');
   const calibText = shadow.getElementById('qf-calib-text');
@@ -778,46 +875,42 @@
   }
 
   function openDrawer(autoDetect = true) {
-    if (autoDetect && uiState.tab === 'fill') {
-      uiState.step = detectCurrentPageStep();
+    if (autoDetect && extState.tab === 'fill') {
+      extState.step = detectCurrentPageStep();
     }
-    uiState.open = true;
-    overlay.classList.add('open');
+    extState.open = true;
+    drawer.classList.add('open');
     render();
   }
 
   function closeDrawer() {
-    uiState.open = false;
-    overlay.classList.remove('open');
+    extState.open = false;
+    drawer.classList.remove('open');
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Render Views
+  // 5. Render Views (Exact Gemini UX)
   // ---------------------------------------------------------------------------
   function render() {
-    shadow.getElementById('tab-fill').classList.toggle('active', uiState.tab === 'fill');
-    shadow.getElementById('tab-manage').classList.toggle('active', uiState.tab === 'manage');
-    shadow.getElementById('tab-calibrate').classList.toggle('active', uiState.tab === 'calibrate');
+    shadow.getElementById('tab-fill').classList.toggle('active', extState.tab === 'fill');
+    shadow.getElementById('tab-manage').classList.toggle('active', extState.tab === 'manage');
+    stepBar.style.display = extState.tab === 'fill' ? 'grid' : 'none';
 
-    stepPillsEl.style.display = uiState.tab === 'fill' ? 'grid' : 'none';
-    shadow.querySelectorAll('.step-pill').forEach(btn => {
-      btn.classList.toggle('active', Number(btn.getAttribute('data-step')) === uiState.step);
+    shadow.querySelectorAll('.step-chip').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.getAttribute('data-step')) === extState.step);
     });
 
-    if (uiState.tab === 'manage') {
-      subtitleEl.textContent = 'ניהול ת"ז, מסלולים, רכבים ושיתוף יחידה';
+    if (extState.tab === 'manage') {
+      subtitleEl.textContent = 'ניהול ת"ז קבועה, מסלולים, רכבים ואנשים';
       renderManage();
-    } else if (uiState.tab === 'calibrate') {
-      subtitleEl.textContent = 'התאמת שדות למבנה הדף של SmartBase';
-      renderCalibrate();
-    } else if (uiState.step === 1) {
+    } else if (extState.step === 1) {
       subtitleEl.textContent = 'שלב 1 • תכנון נסיעה ומסלולים';
       renderStep1();
-    } else if (uiState.step === 2) {
+    } else if (extState.step === 2) {
       subtitleEl.textContent = 'שלב 2 • רכב, נהג, מפקד משימה ומשלח';
       renderStep2();
     } else {
-      subtitleEl.textContent = 'שלב 3 • אישור הנחיות וקילומטראז\'';
+      subtitleEl.textContent = 'שלב 3 • אישור הנחיות, חתימה וקילומטראז\'';
       renderStep3();
     }
   }
@@ -827,39 +920,40 @@
     const counts = appData.purposeCounts || {};
 
     bodyEl.innerHTML = `
-      <div class="card accent">
+      <div class="card indigo">
         <div class="row">
-          <span class="lbl" style="margin:0;color:#312e81;">מסלול קבוע:</span>
-          <span style="font-size:10px;font-weight:700;color:#5b4ce6;">מסלול חדש נשמר אוטומטית</span>
+          <label class="lbl" style="margin:0;color:#312e81;">בחירת מסלול קבוע:</label>
+          <span style="font-size:11px;font-weight:700;color:#5b4ce6;">מסלול חדש נשמר אוטומטית</span>
         </div>
-        <select id="qf-sel-route" class="select">
+
+        <select id="ext-sel-route" class="select">
           <option value="">-- מסלול חדש / הזנה ידנית --</option>
-          ${appData.routes.map((r, i) => `<option value="${i}" ${String(uiState.selectedRouteIdx) === String(i) ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
+          ${appData.routes.map((r, idx) => `<option value="${idx}" ${String(extState.selectedRouteIdx) === String(idx) ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
         </select>
 
         <div class="grid-3">
           <div>
             <label class="sub-lbl">מוצא</label>
-            <input id="qf-origin" class="input" type="text" value="${escapeHtml(uiState.quickOrigin)}" placeholder="מוצא" />
+            <input id="ext-q-origin" class="input" type="text" value="${escapeHtml(extState.quickOrigin)}" placeholder="מוצא" />
           </div>
           <div>
             <label class="sub-lbl" style="color:#047857;">עצירה (עריכה)</label>
-            <input id="qf-stop" class="input stop-highlight" type="text" value="${escapeHtml(uiState.quickStop)}" placeholder="למשל: חצור" />
+            <input id="ext-q-stop" class="input stop-edit" type="text" value="${escapeHtml(extState.quickStop)}" placeholder="למשל: חצור" />
           </div>
           <div>
             <label class="sub-lbl">יעד</label>
-            <input id="qf-dest" class="input" type="text" value="${escapeHtml(uiState.quickDest)}" placeholder="יעד" />
+            <input id="ext-q-dest" class="input" type="text" value="${escapeHtml(extState.quickDest)}" placeholder="יעד" />
           </div>
         </div>
       </div>
 
       <div>
         <label class="lbl">מטרת הנסיעה (המועדפות בראש):</label>
-        <select id="qf-purpose" class="select">
+        <select id="ext-q-purpose" class="select">
           ${sortedPurposes.map(p => {
             const c = Number(counts[p] || 0);
-            const label = c > 0 ? `★ ${p} (${c})` : p;
-            return `<option value="${escapeHtml(p)}" ${uiState.quickPurpose === p ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+            const label = c > 0 ? `★ ${p} (${c} בחירות)` : p;
+            return `<option value="${escapeHtml(p)}" ${extState.quickPurpose === p ? 'selected' : ''}>${escapeHtml(label)}</option>`;
           }).join('')}
         </select>
       </div>
@@ -867,384 +961,384 @@
       <div>
         <span class="lbl">סוג הנסיעה:</span>
         <div class="grid-2">
-          <button type="button" data-trip="נסיעה מנהלתית" class="btn btn-outline ${uiState.quickTripType === 'נסיעה מנהלתית' ? 'active' : ''}">נסיעה מנהלתית</button>
-          <button type="button" data-trip="נסיעה מבצעית" class="btn btn-outline ${uiState.quickTripType === 'נסיעה מבצעית' ? 'active' : ''}">נסיעה מבצעית</button>
+          <button type="button" data-q-trip="נסיעה מנהלתית" class="pill-btn ${extState.quickTripType === 'נסיעה מנהלתית' ? 'active' : ''}">נסיעה מנהלתית</button>
+          <button type="button" data-q-trip="נסיעה מבצעית" class="pill-btn ${extState.quickTripType === 'נסיעה מבצעית' ? 'active' : ''}">נסיעה מבצעית</button>
         </div>
       </div>
 
-      <button id="qf-run-1" type="button" class="btn btn-primary">
-        ⚡ מלא שלב 1 ${appData.autoAdvance ? 'ועבור לשלב 2' : ''}
+      <button id="ext-run-step1" type="button" class="run-btn">
+        ⚡ מלא שלב 1 ועבור אוטומטית לשלב 2
       </button>
     `;
 
-    shadow.getElementById('qf-sel-route').addEventListener('change', (e) => {
-      uiState.selectedRouteIdx = e.target.value;
+    shadow.getElementById('ext-sel-route').addEventListener('change', e => {
+      extState.selectedRouteIdx = e.target.value;
       if (e.target.value !== '') {
         const r = appData.routes[Number(e.target.value)];
         if (r) {
-          uiState.quickOrigin = r.origin || '';
-          uiState.quickStop = r.stop || '';
-          uiState.quickDest = r.dest || '';
-          uiState.quickPurpose = TRIP_PURPOSES.includes(r.purpose) ? r.purpose : 'תפקיד';
-          uiState.quickTripType = r.tripType || 'נסיעה מנהלתית';
+          extState.quickOrigin = r.origin || '';
+          extState.quickStop = r.stop || '';
+          extState.quickDest = r.dest || '';
+          extState.quickPurpose = TRIP_PURPOSES.includes(r.purpose) ? r.purpose : 'תפקיד';
+          extState.quickTripType = r.tripType || 'נסיעה מנהלתית';
           render();
         }
       }
     });
 
-    shadow.getElementById('qf-origin').addEventListener('input', e => { uiState.quickOrigin = e.target.value; });
-    shadow.getElementById('qf-stop').addEventListener('input', e => { uiState.quickStop = e.target.value; });
-    shadow.getElementById('qf-dest').addEventListener('input', e => { uiState.quickDest = e.target.value; });
-    shadow.getElementById('qf-purpose').addEventListener('change', e => { uiState.quickPurpose = e.target.value; });
+    shadow.getElementById('ext-q-origin').addEventListener('input', e => { extState.quickOrigin = e.target.value; });
+    shadow.getElementById('ext-q-stop').addEventListener('input', e => { extState.quickStop = e.target.value; });
+    shadow.getElementById('ext-q-dest').addEventListener('input', e => { extState.quickDest = e.target.value; });
+    shadow.getElementById('ext-q-purpose').addEventListener('change', e => { extState.quickPurpose = e.target.value; });
 
-    shadow.querySelectorAll('[data-trip]').forEach(btn => {
+    shadow.querySelectorAll('[data-q-trip]').forEach(btn => {
       btn.addEventListener('click', () => {
-        uiState.quickTripType = btn.getAttribute('data-trip');
+        extState.quickTripType = btn.getAttribute('data-q-trip');
         render();
       });
     });
 
-    shadow.getElementById('qf-run-1').addEventListener('click', async () => {
-      const origin = uiState.quickOrigin.trim();
-      const stop = uiState.quickStop.trim();
-      const dest = uiState.quickDest.trim();
+    shadow.getElementById('ext-run-step1').addEventListener('click', async () => {
+      const cleanOrigin = extState.quickOrigin.trim();
+      const cleanStop = extState.quickStop.trim();
+      const cleanDest = extState.quickDest.trim();
 
-      if (!origin || !dest) {
+      if (!cleanOrigin || !cleanDest) {
         showToast('יש למלא לפחות מוצא ויעד');
         return;
       }
 
-      const savedIdx = autoSaveRouteIfNew(origin, stop, dest, uiState.quickPurpose, uiState.quickTripType);
-      if (savedIdx !== null) uiState.selectedRouteIdx = String(savedIdx);
-      recordPurposeUsage(uiState.quickPurpose);
+      const savedIdx = autoSaveRouteIfNew(cleanOrigin, cleanStop, cleanDest, extState.quickPurpose, extState.quickTripType);
+      if (savedIdx !== null) extState.selectedRouteIdx = String(savedIdx);
+      recordPurposeUsage(extState.quickPurpose);
+
+      closeDrawer();
+      await delay(100);
 
       let filled = 0;
       const originEl = findField('origin');
-      if (originEl) { await selectCustomDropdown(originEl, origin); filled++; }
+      if (originEl) { await fillSmartDropdownOrInput(originEl, cleanOrigin); filled++; }
 
-      if (stop) {
+      if (cleanStop) {
         let stopEl = findField('stop');
         if (!stopEl || !isVisible(stopEl)) {
           const addStopBtn = findField('addStopBtn');
           if (addStopBtn) {
             addStopBtn.click();
-            await delay(220);
+            await delay(260);
             stopEl = findField('stop');
           }
         }
-        if (stopEl) { await selectCustomDropdown(stopEl, stop); filled++; }
+        if (stopEl) { await fillSmartDropdownOrInput(stopEl, cleanStop); filled++; }
       }
 
       const destEl = findField('dest');
-      if (destEl) { await selectCustomDropdown(destEl, dest); filled++; }
+      if (destEl) { await fillSmartDropdownOrInput(destEl, cleanDest); filled++; }
 
       const purposeEl = findField('purpose');
-      if (purposeEl && uiState.quickPurpose) {
-        await selectCustomDropdown(purposeEl, uiState.quickPurpose);
+      if (purposeEl && extState.quickPurpose) {
+        await fillSmartDropdownOrInput(purposeEl, extState.quickPurpose);
         filled++;
       }
 
-      const tripBtn = findButtonByText([uiState.quickTripType]);
+      const tripBtn = findButtonByText([extState.quickTripType]);
       if (tripBtn) { tripBtn.click(); filled++; }
 
       if (filled === 0) {
-        showToast('לא זוהו שדות שלב 1 — השתמש בלשונית "🔧 כיול"');
+        showToast('פתח תחילה "מילוי כרטיס עבודה" (שלב 1) ב-SmartBase');
         return;
       }
 
-      if (appData.autoAdvance) {
-        await delay(150);
-        const nextBtn = findField('nextStep1Btn');
-        if (nextBtn) nextBtn.click();
-        uiState.step = 2;
-        showToast('שלב 1 מולא • עבר לשלב 2');
-        render();
-      } else {
-        showToast('שלב 1 מולא בהצלחה ✓');
-        closeDrawer();
-      }
+      await delay(220);
+      const nextBtn = findField('nextStep1Btn');
+      if (nextBtn) nextBtn.click();
+
+      extState.step = 2;
+      showToast('שלב 1 מולא • עבר אוטומטית לשלב 2');
+      await delay(350);
+      openDrawer(false);
     });
   }
 
   function renderStep2() {
     const peopleOpts = appData.people.length
       ? appData.people.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.id)})</option>`).join('')
-      : '<option value="">אין אנשים שמורים עדיין</option>';
+      : '<option value="">אין אנשים שמורים ברשימה</option>';
 
     bodyEl.innerHTML = `
-      <div class="card">
-        ${uiState.editingMyId ? `
-          <label class="lbl">תעודת הזהות הקבועה שלי (9 ספרות):</label>
+      <div class="card slate">
+        ${extState.editingMyId ? `
           <div class="row">
-            <input id="qf-myid-in" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(appData.myId)}" placeholder="הזן 9 ספרות" />
-            <button id="qf-myid-save" type="button" class="btn btn-primary btn-sm">שמור</button>
+            <input id="ext-inline-myid" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(appData.myId)}" placeholder="הזן 9 ספרות של הת&quot;ז שלך" />
+            <button id="ext-save-inline-myid" type="button" class="sm-btn emerald">שמור</button>
           </div>
         ` : `
           <div class="row">
             <div>
-              <span class="sub-lbl" style="margin:0;">תעודת הזהות שלי:</span>
+              <span class="sub-lbl" style="margin:0;">תעודת הזהות הקבועה שלי:</span>
               <strong style="font-size:13px;">${escapeHtml(appData.myId || 'לא הוגדרה')}</strong>
             </div>
-            <button id="qf-myid-edit" type="button" class="btn btn-outline btn-sm">✏️ ערוך</button>
+            <button id="ext-edit-inline-myid" type="button" class="sm-btn">✏️ ערוך</button>
           </div>
         `}
       </div>
 
       <div>
         <label class="lbl">מספר הרכב:</label>
-        <select id="qf-sel-veh" class="select">
+        <select id="ext-sel-vehicle" class="select">
           <option value="">-- בחר רכב שמור --</option>
-          ${appData.vehicles.map(v => `<option value="${escapeHtml(v.plate)}" ${uiState.selectedVehiclePlate === v.plate ? 'selected' : ''}>${escapeHtml(v.name)} (${escapeHtml(v.plate)})</option>`).join('')}
+          ${appData.vehicles.map(v => `<option value="${escapeHtml(v.plate)}" ${extState.selectedVehiclePlate === v.plate ? 'selected' : ''}>${escapeHtml(v.name)} (${escapeHtml(v.plate)})</option>`).join('')}
         </select>
       </div>
 
       <div class="card">
         <span class="lbl" style="margin:0;">נהג:</span>
         <div class="grid-2">
-          <button type="button" data-d="me" class="btn btn-outline ${uiState.driverChoice === 'me' ? 'active' : ''}">אני נהג</button>
-          <button type="button" data-d="person" class="btn btn-outline ${uiState.driverChoice === 'person' ? 'active' : ''}">בחירת נהג</button>
+          <button type="button" data-d-choice="me" class="pill-btn ${extState.driverChoice === 'me' ? 'active' : ''}">אני נהג</button>
+          <button type="button" data-d-choice="person" class="pill-btn ${extState.driverChoice === 'person' ? 'active' : ''}">בחירת נהג</button>
         </div>
-        ${uiState.driverChoice === 'person' ? `
-          <select id="qf-sel-driver" class="select">
-            <option value="">-- בחר מהמאגר --</option>
+        ${extState.driverChoice === 'person' ? `
+          <select id="ext-sel-driver-person" class="select">
+            <option value="">-- בחר מהמאגר או הזן ת"ז חדשה למטה --</option>
             ${peopleOpts}
           </select>
-          <input id="qf-custom-driver" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(uiState.driverCustomId)}" placeholder="או הזן ת&quot;ז חדשה (9 ספרות)" />
+          <input id="ext-custom-driver-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.driverCustomId)}" placeholder="או הזן ת&quot;ז חדשה (9 ספרות)" />
         ` : ''}
       </div>
 
       <div class="card">
         <span class="lbl" style="margin:0;">מפקד משימה:</span>
         <div class="grid-2">
-          <button type="button" data-c="me" class="btn btn-outline ${uiState.cmdChoice === 'me' ? 'active' : ''}">אני מפקד</button>
-          <button type="button" data-c="person" class="btn btn-outline ${uiState.cmdChoice === 'person' ? 'active' : ''}">בחירת מפקד</button>
+          <button type="button" data-c-choice="me" class="pill-btn ${extState.cmdChoice === 'me' ? 'active' : ''}">אני מפקד</button>
+          <button type="button" data-c-choice="person" class="pill-btn ${extState.cmdChoice === 'person' ? 'active' : ''}">בחירת מפקד</button>
         </div>
-        ${uiState.cmdChoice === 'person' ? `
-          <select id="qf-sel-cmd" class="select">
-            <option value="">-- בחר מהמאגר --</option>
+        ${extState.cmdChoice === 'person' ? `
+          <select id="ext-sel-cmd-person" class="select">
+            <option value="">-- בחר מהמאגר או הזן ת"ז חדשה למטה --</option>
             ${peopleOpts}
           </select>
-          <input id="qf-custom-cmd" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(uiState.cmdCustomId)}" placeholder="או הזן ת&quot;ז חדשה (9 ספרות)" />
+          <input id="ext-custom-cmd-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.cmdCustomId)}" placeholder="או הזן ת&quot;ז חדשה (9 ספרות)" />
         ` : ''}
       </div>
 
       <div class="card">
-        <label class="lbl" style="margin:0;">מפקד משלח (הנייד מושלם אוטומטית):</label>
-        <select id="qf-sel-disp" class="select">
-          <option value="">-- בחר משלח מהמאגר --</option>
+        <label class="lbl" style="margin:0;">מפקד משלח (ממלא ת"ז והנייד מושלם אוטומטית):</label>
+        <select id="ext-sel-disp-person" class="select">
+          <option value="">-- בחר משלח מהמאגר או הזן ת"ז חדשה --</option>
           ${peopleOpts}
         </select>
-        <input id="qf-custom-disp" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(uiState.dispCustomId)}" placeholder="או הזן ת&quot;ז משלח חדש (9 ספרות)" />
+        <input id="ext-custom-disp-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.dispCustomId)}" placeholder="או הזן ת&quot;ז משלח חדש (9 ספרות)" />
       </div>
 
-      <button id="qf-run-2" type="button" class="btn btn-primary">
-        ⚡ מלא שלב 2 ${appData.autoAdvance ? 'ועבור לשלב 3' : ''}
+      <button id="ext-run-step2" type="button" class="run-btn">
+        ⚡ מלא שלב 2 ועבור אוטומטית לשלב 3
       </button>
     `;
 
-    const editBtn = shadow.getElementById('qf-myid-edit');
-    if (editBtn) editBtn.addEventListener('click', () => { uiState.editingMyId = true; render(); });
+    const editBtn = shadow.getElementById('ext-edit-inline-myid');
+    if (editBtn) editBtn.addEventListener('click', () => { extState.editingMyId = true; render(); });
 
-    const saveBtn = shadow.getElementById('qf-myid-save');
+    const saveBtn = shadow.getElementById('ext-save-inline-myid');
     if (saveBtn) {
       saveBtn.addEventListener('click', () => {
-        const val = shadow.getElementById('qf-myid-in').value.replace(/\D/g, '').slice(0, 9);
+        const val = shadow.getElementById('ext-inline-myid').value.replace(/\D/g, '').slice(0, 9);
         if (val.length !== 9) { showToast('יש להזין 9 ספרות'); return; }
         appData.myId = val;
         saveData();
-        uiState.editingMyId = false;
-        showToast('תעודת הזהות נשמרה ✓');
+        extState.editingMyId = false;
+        showToast('תעודת הזהות הקבועה עודכנה ✓');
         render();
       });
     }
 
-    shadow.getElementById('qf-sel-veh').addEventListener('change', e => { uiState.selectedVehiclePlate = e.target.value; });
-    shadow.querySelectorAll('[data-d]').forEach(b => b.addEventListener('click', () => { uiState.driverChoice = b.getAttribute('data-d'); render(); }));
-    shadow.querySelectorAll('[data-c]').forEach(b => b.addEventListener('click', () => { uiState.cmdChoice = b.getAttribute('data-c'); render(); }));
+    shadow.getElementById('ext-sel-vehicle').addEventListener('change', e => { extState.selectedVehiclePlate = e.target.value; });
+    shadow.querySelectorAll('[data-d-choice]').forEach(b => b.addEventListener('click', () => { extState.driverChoice = b.getAttribute('data-d-choice'); render(); }));
+    shadow.querySelectorAll('[data-c-choice]').forEach(b => b.addEventListener('click', () => { extState.cmdChoice = b.getAttribute('data-c-choice'); render(); }));
 
-    const selDrv = shadow.getElementById('qf-sel-driver');
+    const selDrv = shadow.getElementById('ext-sel-driver-person');
     if (selDrv) {
-      selDrv.value = uiState.driverCustomId ? '' : uiState.driverPersonId;
-      selDrv.addEventListener('change', e => { uiState.driverPersonId = e.target.value; uiState.driverCustomId = ''; });
+      selDrv.value = extState.driverCustomId ? '' : extState.driverPersonId;
+      selDrv.addEventListener('change', e => { extState.driverPersonId = e.target.value; extState.driverCustomId = ''; });
     }
-    const custDrv = shadow.getElementById('qf-custom-driver');
+    const custDrv = shadow.getElementById('ext-custom-driver-id');
     if (custDrv) {
       custDrv.addEventListener('input', e => {
         const c = e.target.value.replace(/\D/g, '').slice(0, 9);
         e.target.value = c;
-        uiState.driverCustomId = c;
+        extState.driverCustomId = c;
         if (c && selDrv) selDrv.value = '';
       });
     }
 
-    const selCmd = shadow.getElementById('qf-sel-cmd');
+    const selCmd = shadow.getElementById('ext-sel-cmd-person');
     if (selCmd) {
-      selCmd.value = uiState.cmdCustomId ? '' : uiState.cmdPersonId;
-      selCmd.addEventListener('change', e => { uiState.cmdPersonId = e.target.value; uiState.cmdCustomId = ''; });
+      selCmd.value = extState.cmdCustomId ? '' : extState.cmdPersonId;
+      selCmd.addEventListener('change', e => { extState.cmdPersonId = e.target.value; extState.cmdCustomId = ''; });
     }
-    const custCmd = shadow.getElementById('qf-custom-cmd');
+    const custCmd = shadow.getElementById('ext-custom-cmd-id');
     if (custCmd) {
       custCmd.addEventListener('input', e => {
         const c = e.target.value.replace(/\D/g, '').slice(0, 9);
         e.target.value = c;
-        uiState.cmdCustomId = c;
+        extState.cmdCustomId = c;
         if (c && selCmd) selCmd.value = '';
       });
     }
 
-    const selDisp = shadow.getElementById('qf-sel-disp');
+    const selDisp = shadow.getElementById('ext-sel-disp-person');
     if (selDisp) {
-      selDisp.value = uiState.dispCustomId ? '' : uiState.dispPersonId;
-      selDisp.addEventListener('change', e => { uiState.dispPersonId = e.target.value; uiState.dispCustomId = ''; });
+      selDisp.value = extState.dispCustomId ? '' : extState.dispPersonId;
+      selDisp.addEventListener('change', e => { extState.dispPersonId = e.target.value; extState.dispCustomId = ''; });
     }
-    const custDisp = shadow.getElementById('qf-custom-disp');
+    const custDisp = shadow.getElementById('ext-custom-disp-id');
     if (custDisp) {
       custDisp.addEventListener('input', e => {
         const c = e.target.value.replace(/\D/g, '').slice(0, 9);
         e.target.value = c;
-        uiState.dispCustomId = c;
+        extState.dispCustomId = c;
         if (c && selDisp) selDisp.value = '';
       });
     }
 
-    shadow.getElementById('qf-run-2').addEventListener('click', async () => {
-      if ((uiState.driverChoice === 'me' || uiState.cmdChoice === 'me') && appData.myId.length !== 9) {
-        showToast('הזן תחילה את תעודת הזהות הקבועה שלך למעלה');
-        uiState.editingMyId = true;
+    shadow.getElementById('ext-run-step2').addEventListener('click', async () => {
+      if ((extState.driverChoice === 'me' || extState.cmdChoice === 'me') && appData.myId.length !== 9) {
+        showToast('יש להזין תחילה תעודת זהות קבועה (9 ספרות) למעלה');
+        extState.editingMyId = true;
         render();
         return;
       }
 
-      if (uiState.selectedVehiclePlate) {
+      closeDrawer();
+      await delay(100);
+
+      if (extState.selectedVehiclePlate) {
         const plateEl = findField('plate');
-        if (plateEl) setNativeInputValue(plateEl, uiState.selectedVehiclePlate);
+        if (plateEl) setNativeInputValue(plateEl, extState.selectedVehiclePlate);
       }
 
-      // Driver
-      if (uiState.driverChoice === 'me') {
+      if (extState.driverChoice === 'me') {
         const btn = findButtonByText(['אני נהג']);
         if (btn) btn.click();
-        await delay(120);
+        await delay(180);
         const drvEl = findField('driverId');
-        if (drvEl && isVisible(drvEl)) setNativeInputValue(drvEl, appData.myId);
+        if (drvEl && isVisible(drvEl) && appData.myId) setNativeInputValue(drvEl, appData.myId);
       } else {
         const btn = findButtonByText(['בחירת נהג']);
         if (btn) btn.click();
-        await delay(120);
-        const drvId = uiState.driverCustomId || uiState.driverPersonId;
+        await delay(220);
+        const drvId = extState.driverCustomId || extState.driverPersonId;
         const drvEl = findField('driverId');
         if (drvEl && drvId) {
           setNativeInputValue(drvEl, drvId);
-          if (uiState.driverCustomId) {
+          if (extState.driverCustomId) {
             tryLearnPersonNameNearInput(drvEl, drvId, 'נהג');
-            uiState.driverPersonId = drvId;
-            uiState.driverCustomId = '';
+            extState.driverPersonId = drvId;
+            extState.driverCustomId = '';
           }
         }
       }
 
-      // Mission Commander
-      if (uiState.cmdChoice === 'me') {
+      if (extState.cmdChoice === 'me') {
         const btn = findButtonByText(['אני מפקד משימה', 'אני מפקד']);
         if (btn) btn.click();
-        await delay(120);
+        await delay(180);
         const cmdEl = findField('cmdId');
-        if (cmdEl && isVisible(cmdEl)) setNativeInputValue(cmdEl, appData.myId);
+        if (cmdEl && isVisible(cmdEl) && appData.myId) setNativeInputValue(cmdEl, appData.myId);
       } else {
         const btn = findButtonByText(['בחירת מפקד משימה', 'בחירת מפקד']);
         if (btn) btn.click();
-        await delay(120);
-        const cmdId = uiState.cmdCustomId || uiState.cmdPersonId;
+        await delay(220);
+        const cmdId = extState.cmdCustomId || extState.cmdPersonId;
         const cmdEl = findField('cmdId');
         if (cmdEl && cmdId) {
           setNativeInputValue(cmdEl, cmdId);
-          if (uiState.cmdCustomId) {
+          if (extState.cmdCustomId) {
             tryLearnPersonNameNearInput(cmdEl, cmdId, 'מפקד משימה');
-            uiState.cmdPersonId = cmdId;
-            uiState.cmdCustomId = '';
+            extState.cmdPersonId = cmdId;
+            extState.cmdCustomId = '';
           }
         }
       }
 
-      // Dispatcher
-      const dispId = uiState.dispCustomId || uiState.dispPersonId;
+      const dispId = extState.dispCustomId || extState.dispPersonId;
       if (dispId) {
         const dispEl = findField('dispId');
         if (dispEl) {
           setNativeInputValue(dispEl, dispId);
-          if (uiState.dispCustomId) {
+          if (extState.dispCustomId) {
             tryLearnPersonNameNearInput(dispEl, dispId, 'משלח');
-            uiState.dispPersonId = dispId;
-            uiState.dispCustomId = '';
+            extState.dispPersonId = dispId;
+            extState.dispCustomId = '';
           }
         }
       }
 
-      if (appData.autoAdvance) {
-        await delay(200);
-        const nextBtn = findField('nextStep2Btn');
-        if (nextBtn) nextBtn.click();
-        uiState.step = 3;
-        showToast('שלב 2 מולא • עבר לשלב 3');
-        render();
-      } else {
-        showToast('שלב 2 מולא בהצלחה ✓');
-        closeDrawer();
-      }
+      await delay(550);
+      const nextBtn = findField('nextStep2Btn');
+      if (nextBtn) nextBtn.click();
+
+      extState.step = 3;
+      showToast('שלב 2 מולא • עבר אוטומטית לשלב 3');
+      await delay(350);
+      openDrawer(false);
     });
   }
 
   function renderStep3() {
-    const plate = uiState.selectedVehiclePlate;
+    const plate = extState.selectedVehiclePlate;
     const lastOdo = plate && appData.lastOdometers ? appData.lastOdometers[plate] : '';
 
     bodyEl.innerHTML = `
-      <div class="card green">
-        <span style="font-size:12px;font-weight:700;color:#065f46;">
-          שלב 3 • סימון אישור הנחיות, הזנת קילומטראז' ופתיחת חתימה.
-        </span>
+      <div class="card emerald" style="font-size:12px;font-weight:700;">
+        שלב 3 • אישור הנחיות, חתימה דיגיטלית והזנת קילומטראז'.
       </div>
 
       <div>
         <div class="row">
           <label class="lbl">קילומטראז' נוכחי ברכב:</label>
-          ${lastOdo ? `<span style="font-size:11px;font-weight:800;color:#5b4ce6;">אחרון: ${escapeHtml(lastOdo)} ק"מ</span>` : ''}
+          ${lastOdo ? `<span style="font-size:11px;font-weight:800;color:#5b4ce6;">אחרון שנשמר: ${escapeHtml(lastOdo)} ק"מ</span>` : ''}
         </div>
-        <input id="qf-odo" class="input" type="text" inputmode="numeric" value="${escapeHtml(uiState.quickOdometer)}" placeholder="${lastOdo ? `אחרון: ${escapeHtml(lastOdo)}` : 'למשל: 84250'}" />
+        <input id="ext-q-odo" class="input" type="text" inputmode="numeric" value="${escapeHtml(extState.quickOdometer)}" placeholder="${lastOdo ? `אחרון: ${escapeHtml(lastOdo)}` : 'למשל: 84250'}" />
       </div>
 
-      <button id="qf-run-3" type="button" class="btn btn-primary">
-        ⚡ אשר הנחיות ומלא קילומטראז'
+      <button id="ext-run-step3-sign" type="button" class="run-btn">
+        ⚡ אשר הנחיות, מלא ק"מ ופתח חתימה דיגיטלית
       </button>
     `;
 
-    shadow.getElementById('qf-odo').addEventListener('input', e => {
+    shadow.getElementById('ext-q-odo').addEventListener('input', e => {
       const clean = e.target.value.replace(/\D/g, '');
       e.target.value = clean;
-      uiState.quickOdometer = clean;
+      extState.quickOdometer = clean;
     });
 
-    shadow.getElementById('qf-run-3').addEventListener('click', async () => {
+    shadow.getElementById('ext-run-step3-sign').addEventListener('click', async () => {
+      closeDrawer();
+      await delay(100);
+
       const ackEl = findField('ackCheckbox');
-      if (ackEl && !ackEl.checked) {
-        ackEl.click();
-        if (!ackEl.checked) {
-          ackEl.checked = true;
-          ackEl.dispatchEvent(new Event('change', { bubbles: true }));
+      if (ackEl) {
+        const innerInput = ackEl.tagName === 'INPUT' ? ackEl : ackEl.querySelector('input[type="checkbox"]');
+        if (!innerInput || !innerInput.checked) {
+          ackEl.click();
+          if (innerInput && !innerInput.checked) {
+            innerInput.click();
+          }
         }
       }
 
-      const cleanOdo = uiState.quickOdometer.replace(/\D/g, '');
-      if (cleanOdo && uiState.selectedVehiclePlate) {
-        appData.lastOdometers[uiState.selectedVehiclePlate] = cleanOdo;
+      const cleanOdo = extState.quickOdometer.replace(/\D/g, '');
+      if (cleanOdo && extState.selectedVehiclePlate) {
+        appData.lastOdometers[extState.selectedVehiclePlate] = cleanOdo;
         saveData();
       }
 
-      // Open signature modal if there's a button for it
-      const openSignBtn = findButtonByText(['פתח חתימה', 'חתימה דיגיטלית', 'חתימה']);
-      if (openSignBtn) {
-        openSignBtn.click();
-        await delay(200);
+      if (!findField('odometer')) {
+        const openSignBtn = findButtonByText(['פתח חתימה', 'חתימה דיגיטלית', 'חתימה', 'המשך']);
+        if (openSignBtn) {
+          openSignBtn.click();
+          await delay(350);
+        }
       }
 
       if (cleanOdo) {
@@ -1252,161 +1346,179 @@
         if (odoEl) setNativeInputValue(odoEl, cleanOdo);
       }
 
-      closeDrawer();
-      showToast('ההנחיות אושרו והק"מ הוזן — נותר רק לחתום ✓');
+      showToast('ההנחיות אושרו • חלון החתימה והק"מ מוכן ✓');
     });
   }
 
   function renderManage() {
     bodyEl.innerHTML = `
-      <div class="card">
-        <label class="lbl">תעודת הזהות הקבועה שלי (נשמרת במכשיר בלבד):</label>
+      <div class="card slate">
+        <label class="lbl">תעודת הזהות הקבועה שלי:</label>
         <div class="row">
-          <input id="mg-myid" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(appData.myId)}" placeholder="9 ספרות" />
-          <button id="mg-save-myid" type="button" class="btn btn-primary btn-sm">שמור</button>
+          <input id="mgmt-my-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(appData.myId)}" placeholder="9 ספרות" />
+          <button id="mgmt-save-my-id" type="button" class="sm-btn primary">שמור</button>
         </div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;margin-top:4px;cursor:pointer;">
-          <input id="mg-auto-adv" type="checkbox" ${appData.autoAdvance ? 'checked' : ''} />
-          מעבר אוטומטי לשלב הבא אחרי מילוי
-        </label>
       </div>
 
       <div class="card">
-        <span class="lbl">מסלולים קבועים:</span>
+        <span class="lbl" style="margin:0;">מסלולים קבועים (עם אפשרות עריכת עצירה):</span>
+        <input id="new-route-name" class="input" type="text" placeholder="שם מסלול (אופציונלי — נוצר אוטומטית)" />
         <div class="grid-3">
-          <input id="mg-r-origin" class="input" type="text" placeholder="מוצא" />
-          <input id="mg-r-stop" class="input" type="text" placeholder="עצירה" />
-          <input id="mg-r-dest" class="input" type="text" placeholder="יעד" />
+          <input id="new-route-origin" class="input" type="text" placeholder="מוצא" />
+          <input id="new-route-stop" class="input" type="text" placeholder="עצירה" />
+          <input id="new-route-dest" class="input" type="text" placeholder="יעד" />
         </div>
-        <button id="mg-add-route" type="button" class="btn btn-dark">+ הוסף מסלול</button>
-        ${appData.routes.map((r, i) => `
-          <div class="list-item">
+        <button id="btn-add-route" type="button" class="dark-btn">+ הוסף מסלול</button>
+        ${appData.routes.map((r, idx) => `
+          <div class="list-row">
             <span class="truncate">${escapeHtml(r.name)}</span>
-            <button type="button" class="btn-danger" data-del-r="${i}">מחק</button>
+            <button type="button" class="del-btn" data-del-route="${idx}">מחק</button>
           </div>
         `).join('')}
       </div>
 
       <div class="card">
-        <span class="lbl">רכבים שמורים:</span>
+        <span class="lbl" style="margin:0;">רכבים שמורים:</span>
         <div class="grid-2">
-          <input id="mg-v-name" class="input" type="text" placeholder="כינוי (היילקס)" />
-          <input id="mg-v-plate" class="input" type="text" placeholder="מס' צ' / רישוי" />
+          <input id="new-veh-name" class="input" type="text" placeholder="כינוי (למשל: היילקס)" />
+          <input id="new-veh-plate" class="input" type="text" placeholder="מס' רישוי / צ'" />
         </div>
-        <button id="mg-add-veh" type="button" class="btn btn-dark">+ הוסף רכב</button>
-        ${appData.vehicles.map((v, i) => `
-          <div class="list-item">
+        <button id="btn-add-veh" type="button" class="dark-btn">+ הוסף רכב</button>
+        ${appData.vehicles.map((v, idx) => `
+          <div class="list-row">
             <span class="truncate">${escapeHtml(v.name)} — ${escapeHtml(v.plate)}</span>
-            <button type="button" class="btn-danger" data-del-v="${i}">מחק</button>
+            <button type="button" class="del-btn" data-del-veh="${idx}">מחק</button>
           </div>
         `).join('')}
       </div>
 
       <div class="card">
-        <span class="lbl">אנשי צוות / משלחים (ללא טלפון):</span>
+        <span class="lbl" style="margin:0;">אנשי צוות / משלחים (ללא טלפון):</span>
         <div class="grid-2">
-          <input id="mg-p-name" class="input" type="text" placeholder="שם (דני משלח)" />
-          <input id="mg-p-id" class="input" type="text" inputmode="numeric" maxlength="9" placeholder="ת&quot;ז (9 ספרות)" />
+          <input id="new-person-name" class="input" type="text" placeholder="שם (למשל: דני משלח)" />
+          <input id="new-person-id" class="input" type="text" inputmode="numeric" maxlength="9" placeholder="תעודת זהות" />
         </div>
-        <button id="mg-add-person" type="button" class="btn btn-dark">+ הוסף אדם</button>
-        ${appData.people.map((p, i) => `
-          <div class="list-item">
+        <button id="btn-add-person" type="button" class="dark-btn">+ הוסף אדם</button>
+        ${appData.people.map((p, idx) => `
+          <div class="list-row">
             <span class="truncate">${escapeHtml(p.name)} — ${escapeHtml(p.id)}</span>
-            <button type="button" class="btn-danger" data-del-p="${i}">מחק</button>
+            <button type="button" class="del-btn" data-del-person="${idx}">מחק</button>
           </div>
         `).join('')}
       </div>
 
-      <div class="card accent">
-        <span class="lbl" style="color:#312e81;">📤 שיתוף הגדרות יחידה למכשירים אחרים</span>
-        <p style="font-size:11px;color:#475569;margin:0;">מעביר מסלולים, רכבים, משלחים וכיולי שדות בוואטסאפ — <strong>בלי</strong> תעודת הזהות האישית שלך.</p>
+      <div class="card indigo">
+        <span class="lbl" style="margin:0;color:#312e81;">📤 שיתוף רשימות יחידה (ללא ת"ז אישית)</span>
         <div class="grid-2">
-          <button id="mg-export" type="button" class="btn btn-primary btn-sm" style="width:100%;">📋 העתק קוד שיתוף</button>
-          <button id="mg-import" type="button" class="btn btn-outline btn-sm" style="width:100%;">📥 ייבא קוד</button>
+          <button id="btn-export-cfg" type="button" class="sm-btn primary" style="width:100%;">📋 העתק קוד שיתוף</button>
+          <button id="btn-import-cfg" type="button" class="sm-btn" style="width:100%;">📥 ייבא קוד</button>
         </div>
       </div>
+
+      <button id="btn-toggle-adv" type="button" class="sm-btn" style="width:100%;">
+        🔧 ${extState.showAdvanced ? 'הסתר כיול שדות מתקדם' : 'כיול שדות מתקדם (רק אם שדה לא מתמלא)'}
+      </button>
+
+      ${extState.showAdvanced ? `
+        <div class="card slate">
+          <span class="sub-lbl">לחץ "כייל" ואז גע בשדה האמיתי בדף SmartBase:</span>
+          ${FIELD_DEFS.map(def => {
+            const saved = appData.customSelectors[def.key];
+            return `
+              <div class="list-row">
+                <span class="truncate">${saved ? '🟢 ' : ''}${escapeHtml(def.label)}</span>
+                <div style="display:flex;gap:4px;">
+                  <button type="button" class="sm-btn" data-cal="${def.key}">כייל</button>
+                  ${saved ? `<button type="button" class="del-btn" data-cal-clear="${def.key}">איפוס</button>` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      ` : ''}
     `;
 
-    shadow.getElementById('mg-save-myid').addEventListener('click', () => {
-      const val = shadow.getElementById('mg-myid').value.replace(/\D/g, '').slice(0, 9);
+    shadow.getElementById('mgmt-save-my-id').addEventListener('click', () => {
+      const val = shadow.getElementById('mgmt-my-id').value.replace(/\D/g, '').slice(0, 9);
       if (val.length !== 9) { showToast('יש להזין 9 ספרות'); return; }
       appData.myId = val;
-      uiState.editingMyId = false;
+      extState.editingMyId = false;
       saveData();
-      showToast('תעודת הזהות נשמרה ✓');
+      showToast('תעודת הזהות הקבועה נשמרה ✓');
     });
 
-    shadow.getElementById('mg-auto-adv').addEventListener('change', e => {
-      appData.autoAdvance = e.target.checked;
+    shadow.getElementById('btn-add-route').addEventListener('click', () => {
+      const origin = shadow.getElementById('new-route-origin').value.trim();
+      const stop = shadow.getElementById('new-route-stop').value.trim();
+      const dest = shadow.getElementById('new-route-dest').value.trim();
+      const rawName = shadow.getElementById('new-route-name').value.trim();
+      if (!origin || !dest) { showToast('יש למלא לפחות מוצא ויעד'); return; }
+      const name = rawName || `${origin}${stop ? ` ◄ ${stop}` : ''} ◄ ${dest}`;
+      appData.routes.push({ name, origin, stop, dest, purpose: 'תפקיד', tripType: 'נסיעה מנהלתית' });
+      extState.selectedRouteIdx = String(appData.routes.length - 1);
+      extState.quickOrigin = origin;
+      extState.quickStop = stop;
+      extState.quickDest = dest;
       saveData();
-    });
-
-    shadow.getElementById('mg-add-route').addEventListener('click', () => {
-      const o = shadow.getElementById('mg-r-origin').value.trim();
-      const s = shadow.getElementById('mg-r-stop').value.trim();
-      const d = shadow.getElementById('mg-r-dest').value.trim();
-      if (!o || !d) { showToast('יש למלא מוצא ויעד'); return; }
-      const name = `${o}${s ? ` ◄ ${s}` : ''} ◄ ${d}`;
-      appData.routes.push({ name, origin: o, stop: s, dest: d, purpose: 'תפקיד', tripType: 'נסיעה מנהלתית' });
-      saveData();
-      showToast('המסלול נוסף ✓');
+      showToast('המסלול נשמר ✓');
       render();
     });
 
-    shadow.getElementById('mg-add-veh').addEventListener('click', () => {
-      const name = shadow.getElementById('mg-v-name').value.trim();
-      const plate = shadow.getElementById('mg-v-plate').value.trim();
+    shadow.getElementById('btn-add-veh').addEventListener('click', () => {
+      const name = shadow.getElementById('new-veh-name').value.trim();
+      const plate = shadow.getElementById('new-veh-plate').value.trim();
       if (!name || !plate) { showToast('יש למלא כינוי ומספר רכב'); return; }
       appData.vehicles.push({ name, plate });
-      uiState.selectedVehiclePlate = plate;
+      extState.selectedVehiclePlate = plate;
       saveData();
-      showToast('הרכב נוסף ✓');
+      showToast('הרכב נשמר ✓');
       render();
     });
 
-    shadow.getElementById('mg-add-person').addEventListener('click', () => {
-      const name = shadow.getElementById('mg-p-name').value.trim();
-      const id = shadow.getElementById('mg-p-id').value.replace(/\D/g, '').slice(0, 9);
+    shadow.getElementById('btn-add-person').addEventListener('click', () => {
+      const name = shadow.getElementById('new-person-name').value.trim();
+      const id = shadow.getElementById('new-person-id').value.replace(/\D/g, '').slice(0, 9);
       if (!name || id.length !== 9) { showToast('יש למלא שם ות"ז בת 9 ספרות'); return; }
       appData.people.push({ name, id, role: 'צוות' });
+      extState.dispPersonId = id;
       saveData();
-      showToast('האדם נוסף ✓');
+      showToast('איש הצוות נשמר ✓');
       render();
     });
 
-    shadow.querySelectorAll('[data-del-r]').forEach(b => b.addEventListener('click', () => {
-      const idx = Number(b.getAttribute('data-del-r'));
+    shadow.querySelectorAll('[data-del-route]').forEach(b => b.addEventListener('click', () => {
+      const idx = Number(b.getAttribute('data-del-route'));
       appData.routes.splice(idx, 1);
-      if (uiState.selectedRouteIdx !== '') {
-        const cur = Number(uiState.selectedRouteIdx);
-        if (cur === idx) uiState.selectedRouteIdx = appData.routes.length ? '0' : '';
-        else if (cur > idx) uiState.selectedRouteIdx = String(cur - 1);
+      if (extState.selectedRouteIdx !== '') {
+        const cur = Number(extState.selectedRouteIdx);
+        if (cur === idx) extState.selectedRouteIdx = appData.routes.length ? '0' : '';
+        else if (cur > idx) extState.selectedRouteIdx = String(cur - 1);
       }
       saveData();
       render();
     }));
 
-    shadow.querySelectorAll('[data-del-v]').forEach(b => b.addEventListener('click', () => {
-      const idx = Number(b.getAttribute('data-del-v'));
+    shadow.querySelectorAll('[data-del-veh]').forEach(b => b.addEventListener('click', () => {
+      const idx = Number(b.getAttribute('data-del-veh'));
       const rem = appData.vehicles.splice(idx, 1)[0];
-      if (rem && uiState.selectedVehiclePlate === rem.plate) uiState.selectedVehiclePlate = appData.vehicles[0]?.plate || '';
+      if (rem && extState.selectedVehiclePlate === rem.plate) extState.selectedVehiclePlate = appData.vehicles[0]?.plate || '';
       saveData();
       render();
     }));
 
-    shadow.querySelectorAll('[data-del-p]').forEach(b => b.addEventListener('click', () => {
-      const idx = Number(b.getAttribute('data-del-p'));
+    shadow.querySelectorAll('[data-del-person]').forEach(b => b.addEventListener('click', () => {
+      const idx = Number(b.getAttribute('data-del-person'));
       const rem = appData.people.splice(idx, 1)[0];
       if (rem) {
-        if (uiState.driverPersonId === rem.id) uiState.driverPersonId = appData.people[0]?.id || '';
-        if (uiState.cmdPersonId === rem.id) uiState.cmdPersonId = appData.people[0]?.id || '';
-        if (uiState.dispPersonId === rem.id) uiState.dispPersonId = appData.people[0]?.id || '';
+        if (extState.driverPersonId === rem.id) extState.driverPersonId = appData.people[0]?.id || '';
+        if (extState.cmdPersonId === rem.id) extState.cmdPersonId = appData.people[0]?.id || '';
+        if (extState.dispPersonId === rem.id) extState.dispPersonId = appData.people[0]?.id || '';
       }
       saveData();
       render();
     }));
 
-    shadow.getElementById('mg-export').addEventListener('click', async () => {
+    shadow.getElementById('btn-export-cfg').addEventListener('click', async () => {
       const payload = JSON.stringify({
         v: 1,
         routes: appData.routes,
@@ -1414,20 +1526,16 @@
         people: appData.people,
         customSelectors: appData.customSelectors
       });
-      try {
-        await navigator.clipboard.writeText(payload);
-        showToast('קוד היחידה הועתק — שלח בוואטסאפ ✓');
-      } catch (_) {
-        window.prompt('העתק את קוד השיתוף:', payload);
-      }
+      await copyToClipboard(payload, 'העתק את קוד השיתוף:');
+      showToast('קוד היחידה הועתק ✓');
     });
 
-    shadow.getElementById('mg-import').addEventListener('click', () => {
-      const raw = window.prompt('הדבק את קוד השיתוף שקיבלת:');
+    shadow.getElementById('btn-import-cfg').addEventListener('click', () => {
+      const raw = window.prompt('הדבק כאן את קוד השיתוף שקיבלת:');
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw.trim());
-        if (!parsed || typeof parsed !== 'object') throw new Error('bad');
+        if (!parsed || typeof parsed !== 'object') throw new Error('invalid');
         if (Array.isArray(parsed.routes)) appData.routes = parsed.routes;
         if (Array.isArray(parsed.vehicles)) appData.vehicles = parsed.vehicles;
         if (Array.isArray(parsed.people)) appData.people = parsed.people;
@@ -1441,40 +1549,15 @@
         showToast('קוד לא תקין');
       }
     });
-  }
 
-  function renderCalibrate() {
-    bodyEl.innerHTML = `
-      <div class="card accent">
-        <span class="lbl" style="color:#312e81;">🔧 כיול שדות חכם (פעם אחת בלבד)</span>
-        <p style="font-size:11px;color:#475569;margin:0;">
-          אם שדה מסוים ב-SmartBase לא מתמלא אוטומטית — לחץ "כייל", ואז גע בשדה האמיתי בדף. הכיול נשמר וניתן לשתף אותו עם כל היחידה.
-        </p>
-      </div>
-
-      ${FIELD_DEFS.map(def => {
-        const saved = appData.customSelectors[def.key];
-        const autoFound = !saved && Boolean(findField(def.key));
-        const status = saved ? '🟢 מכויל ידנית' : (autoFound ? '🔵 זוהה אוטומטית' : '⚪ לא זוהה בדף זה');
-        return `
-          <div class="list-item">
-            <div style="min-width:0;flex:1;">
-              <div style="font-weight:800;font-size:12px;">${escapeHtml(def.label)}</div>
-              <div style="font-size:10px;color:#64748b;" class="truncate">${status}${saved ? ` (${escapeHtml(saved)})` : ''}</div>
-            </div>
-            <div style="display:flex;gap:4px;">
-              <button type="button" class="btn btn-outline btn-sm" data-cal="${def.key}">כייל</button>
-              ${saved ? `<button type="button" class="btn-danger" data-cal-clear="${def.key}">איפוס</button>` : ''}
-            </div>
-          </div>
-        `;
-      }).join('')}
-    `;
+    shadow.getElementById('btn-toggle-adv').addEventListener('click', () => {
+      extState.showAdvanced = !extState.showAdvanced;
+      render();
+    });
 
     shadow.querySelectorAll('[data-cal]').forEach(btn => {
       btn.addEventListener('click', () => startCalibration(btn.getAttribute('data-cal')));
     });
-
     shadow.querySelectorAll('[data-cal-clear]').forEach(btn => {
       btn.addEventListener('click', () => {
         delete appData.customSelectors[btn.getAttribute('data-cal-clear')];
@@ -1485,12 +1568,12 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 6. Interactive Field Picker (Calibration Mode)
+  // 6. Calibration Picker
   // ---------------------------------------------------------------------------
   function startCalibration(key) {
     const def = FIELD_DEFS.find(f => f.key === key);
     if (!def) return;
-    uiState.calibratingKey = key;
+    extState.calibratingKey = key;
     closeDrawer();
     calibText.textContent = `גע בשדה: "${def.label}" בדף`;
     calibBanner.classList.add('show');
@@ -1498,29 +1581,27 @@
   }
 
   function stopCalibration() {
-    uiState.calibratingKey = null;
+    extState.calibratingKey = null;
     calibBanner.classList.remove('show');
     document.removeEventListener('click', onCalibrateClick, true);
   }
 
   function onCalibrateClick(evt) {
-    if (!uiState.calibratingKey) return;
+    if (!extState.calibratingKey) return;
     if (evt.target.closest && evt.target.closest('#sb-qf-host')) return;
     evt.preventDefault();
     evt.stopPropagation();
 
-    const target = evt.target;
-    const selector = buildUniqueSelector(target);
+    const selector = buildUniqueSelector(evt.target);
     if (selector) {
-      appData.customSelectors[uiState.calibratingKey] = selector;
+      appData.customSelectors[extState.calibratingKey] = selector;
       saveData();
-      highlightPageEl(target);
-      showToast(`השדה כויל בהצלחה ✓`);
-    } else {
-      showToast('לא ניתן היה לזהות סלקטור לשדה זה');
+      highlightPageEl(evt.target);
+      showToast('השדה כויל בהצלחה ✓');
     }
     stopCalibration();
-    uiState.tab = 'calibrate';
+    extState.tab = 'manage';
+    extState.showAdvanced = true;
     openDrawer(false);
   }
 
@@ -1529,16 +1610,15 @@
   // ---------------------------------------------------------------------------
   fab.addEventListener('click', () => openDrawer(true));
   closeBtn.addEventListener('click', closeDrawer);
-  overlay.addEventListener('click', e => { if (e.target === overlay) closeDrawer(); });
+  drawer.addEventListener('click', e => { if (e.target === drawer) closeDrawer(); });
   calibCancel.addEventListener('click', () => { stopCalibration(); openDrawer(false); });
 
-  shadow.getElementById('tab-fill').addEventListener('click', () => { uiState.tab = 'fill'; render(); });
-  shadow.getElementById('tab-manage').addEventListener('click', () => { uiState.tab = 'manage'; render(); });
-  shadow.getElementById('tab-calibrate').addEventListener('click', () => { uiState.tab = 'calibrate'; render(); });
+  shadow.getElementById('tab-fill').addEventListener('click', () => { extState.tab = 'fill'; render(); });
+  shadow.getElementById('tab-manage').addEventListener('click', () => { extState.tab = 'manage'; render(); });
 
-  shadow.querySelectorAll('.step-pill').forEach(btn => {
+  shadow.querySelectorAll('.step-chip').forEach(btn => {
     btn.addEventListener('click', () => {
-      uiState.step = Number(btn.getAttribute('data-step'));
+      extState.step = Number(btn.getAttribute('data-step'));
       render();
     });
   });

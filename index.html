@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>התקנה — תוסף מילוי מהיר אוטומטי ל-SmartBase</title>
+  <title>SmartBase ⚡ — התקנה בקליק אחד</title>
   <style>
     * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
     body {
@@ -11,17 +11,30 @@
       min-height: 100vh;
       background: linear-gradient(135deg, #4f46e5 0%, #6d28d9 100%);
       color: #0f172a;
-      padding: 18px 14px 40px;
+      padding: 20px 14px 44px;
       display: flex;
       justify-content: center;
     }
-    .wrap { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; }
+    .wrap { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
     .hero {
       background: #ffffff;
-      border-radius: 24px;
-      padding: 22px 18px;
+      border-radius: 26px;
+      padding: 24px 20px;
       box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
       text-align: center;
+    }
+    .app-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 12px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #5b4ce6 0%, #4637cc 100%);
+      color: #fff;
+      font-size: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 24px rgba(91, 76, 230, 0.35);
     }
     .badge {
       display: inline-block;
@@ -33,8 +46,9 @@
       border-radius: 999px;
       margin-bottom: 10px;
     }
-    h1 { margin: 0 0 8px; font-size: 22px; font-weight: 900; color: #0f172a; }
-    .lead { margin: 0 0 18px; font-size: 14px; color: #475569; line-height: 1.55; }
+    h1 { margin: 0 0 8px; font-size: 24px; font-weight: 900; color: #0f172a; }
+    .lead { margin: 0 0 20px; font-size: 14px; color: #475569; line-height: 1.55; }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -43,14 +57,24 @@
       text-decoration: none;
       border: none;
       border-radius: 16px;
-      padding: 14px 18px;
-      font-size: 15px;
-      font-weight: 800;
+      padding: 15px 18px;
+      font-size: 16px;
+      font-weight: 900;
       cursor: pointer;
       width: 100%;
     }
-    .btn-primary { background: #4f46e5; color: #fff; box-shadow: 0 10px 24px rgba(79, 70, 229, 0.35); margin-bottom: 10px; }
-    .btn-secondary { background: #f1f5f9; color: #1e293b; font-size: 14px; padding: 12px; }
+    .btn-primary {
+      background: linear-gradient(135deg, #5b4ce6 0%, #4637cc 100%);
+      color: #ffffff;
+      box-shadow: 0 12px 26px rgba(79, 70, 229, 0.38);
+    }
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #1e293b;
+      font-size: 14px;
+      padding: 12px 16px;
+      margin-top: 10px;
+    }
 
     .card {
       background: #ffffff;
@@ -59,20 +83,6 @@
       box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
     }
     .card h2 { margin: 0 0 12px; font-size: 16px; font-weight: 900; color: #0f172a; }
-    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
-    .tab-btn {
-      border: 1.5px solid #e2e8f0;
-      background: #f8fafc;
-      color: #475569;
-      padding: 9px 6px;
-      border-radius: 12px;
-      font-size: 13px;
-      font-weight: 800;
-      cursor: pointer;
-    }
-    .tab-btn.active { background: #4f46e5; border-color: #4f46e5; color: #fff; }
-    .panel { display: none; }
-    .panel.active { display: block; }
     .steps { margin: 0; padding-right: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; color: #334155; line-height: 1.55; }
     .note {
       margin-top: 12px;
@@ -85,87 +95,63 @@
       font-weight: 600;
       line-height: 1.5;
     }
-    .warn {
-      margin-top: 12px;
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      color: #92400e;
-      border-radius: 14px;
-      padding: 11px;
-      font-size: 12px;
-      font-weight: 600;
-      line-height: 1.5;
+    details summary {
+      font-size: 14px;
+      font-weight: 800;
+      color: #334155;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
+    details[open] summary { margin-bottom: 12px; }
   </style>
 </head>
 <body>
   <main class="wrap">
     <section class="hero">
-      <span class="badge">תוסף מילוי אוטומטי אמיתי • 100% מקומי</span>
-      <h1>⚡ מילוי מהיר ל-SmartBase</h1>
+      <div class="app-icon">⚡</div>
+      <span class="badge">אנדרואיד • התקנה בקליק אחד • מתעדכן אוטומטית</span>
+      <h1>SmartBase מילוי מהיר</h1>
       <p class="lead">
-        מוסיף כפתור צף <strong>⚡ מילוי מהיר</strong> ישירות בתוך <code>smartbase.digital.idf.il</code> שממלא אוטומטית את שלבים 1, 2 ו-3 בלחיצה אחת.
+        פותח את <strong>SmartBase</strong> הרשמי כשכפתור <strong>⚡ מילוי מהיר</strong> כבר מובנה בפנים אוטומטית — בלי העתקות, בלי הדבקות ובלי תוספים.
       </p>
-      <a href="./smartbase-quickfill.user.js" class="btn btn-primary">
-        ⬇️ התקן תוסף מילוי מהיר (Userscript)
+      <a href="https://github.com/akunh1211/smartbase-quickfill/releases/latest/download/SmartBase-QuickFill.apk" class="btn btn-primary">
+        ⬇️ הורד והתקן SmartBase ⚡ (אנדרואיד — קליק אחד)
       </a>
-      <a href="https://smartbase.digital.idf.il/#/home/requests" class="btn btn-secondary">
-        🚗 פתח את SmartBase
+      <a href="./smartbase.html" class="btn btn-secondary">
+        🧪 צפה בדמו האינטראקטיבי
       </a>
     </section>
 
     <section class="card">
-      <h2>📱 התקנה חד-פעמית (דקה אחת)</h2>
-      <div class="tabs">
-        <button class="tab-btn active" data-target="android" type="button">אנדרואיד</button>
-        <button class="tab-btn" data-target="iphone" type="button">אייפון</button>
-        <button class="tab-btn" data-target="pc" type="button">מחשב</button>
-      </div>
-
-      <div id="panel-android" class="panel active">
-        <ol class="steps">
-          <li>הורד מה-Play Store את <strong>Microsoft Edge</strong> או <strong>Firefox</strong>.</li>
-          <li>בתפריט הדפדפן היכנס ל<strong>הרחבות (Extensions)</strong> והתקן את <strong>Tampermonkey</strong> (או <strong>Violentmonkey</strong> ב-Firefox).</li>
-          <li>פתח את הדף הזה באותו דפדפן ולחץ למעלה על <strong>"⬇️ התקן תוסף מילוי מהיר"</strong> ← לחץ <strong>Install</strong>.</li>
-          <li>פתח את <strong>SmartBase</strong> — כפתור <strong>⚡ מילוי מהיר</strong> יופיע אוטומטית על המסך!</li>
-        </ol>
-        <div class="warn">
-          ℹ️ למה לא Chrome רגיל באנדרואיד? כי גוגל חוסמת תוספים בכרום לנייד. ב-Edge ו-Firefox התוספים מובנים ורשמיים, והתוסף גם מתעדכן אוטומטית.
-        </div>
-      </div>
-
-      <div id="panel-iphone" class="panel">
-        <ol class="steps">
-          <li>הורד מה-App Store את האפליקציה החינמית <strong>Userscripts</strong>.</li>
-          <li>היכנס ל<strong>הגדרות ← Safari ← הרחבות ← Userscripts</strong> והפעל הרשאה לאתרים.</li>
-          <li>לחץ למעלה על <strong>"⬇️ התקן תוסף מילוי מהיר"</strong> ושמור בתיקיית הסקריפטים של Userscripts.</li>
-          <li>פתח את <strong>SmartBase</strong> ב-Safari — כפתור <strong>⚡ מילוי מהיר</strong> יופיע אוטומטית!</li>
-        </ol>
-      </div>
-
-      <div id="panel-pc" class="panel">
-        <ol class="steps">
-          <li>התקן <strong>Tampermonkey</strong> ב-Chrome / Edge / Firefox.</li>
-          <li>לחץ למעלה על <strong>"⬇️ התקן תוסף מילוי מהיר"</strong> ← <strong>Install</strong>.</li>
-          <li>פתח את <strong>SmartBase</strong> — הכפתור הצף יופיע מיד.</li>
-        </ol>
-      </div>
-
+      <h2>📱 התקנה ב-15 שניות באנדרואיד</h2>
+      <ol class="steps">
+        <li>לחץ למעלה על הכפתור הסגול <strong>"הורד והתקן SmartBase ⚡"</strong>.</li>
+        <li>פתח את הקובץ שירד (<code>SmartBase-QuickFill.apk</code>) ולחץ <strong>התקן</strong> (אם מופיעה שאלה על מקור לא מוכר — אשר פעם אחת).</li>
+        <li>פתח את האפליקציה החדשה <strong>SmartBase ⚡</strong> — כפתור <strong>⚡ מילוי מהיר</strong> יופיע אוטומטית על כרטיס העבודה!</li>
+      </ol>
       <div class="note">
-        💡 <strong>טיפ ליחידה:</strong> אחרי שמישהו אחד מזין מסלולים, רכבים ומשלחים — לוחצים בתוסף על <strong>⚙️ רשימות ← העתק קוד שיתוף</strong> ושולחים בוואטסאפ לכולם (בלי הת"ז האישית).
+        🔒 <strong>פרטיות מוחלטת:</strong> הת"ז, המסלולים והרכבים נשמרים מקומית רק במכשיר שלך. ניתן לשתף את רשימות היחידה בלחיצה מתוך לשונית <strong>⚙️ ניהול רשימות</strong>.
       </div>
     </section>
-  </main>
 
-  <script>
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById('panel-' + btn.getAttribute('data-target')).classList.add('active');
-      });
-    });
-  </script>
+    <section class="card">
+      <details>
+        <summary>
+          <span>🍏 משתמשי אייפון (Safari) או מחשב / Edge</span>
+          <span>▼</span>
+        </summary>
+        <ol class="steps" style="margin-bottom:12px;">
+          <li><strong>באייפון:</strong> התקן מה-App Store את <strong>Userscripts</strong> (חינם), הפעל ב<em>הגדרות ← Safari ← הרחבות</em>, והתקן דרך הכפתור למטה.</li>
+          <li><strong>במחשב / Edge / Firefox באנדרואיד:</strong> התקן את התוסף <strong>Tampermonkey</strong> ולחץ למטה להתקנה אוטומטית.</li>
+        </ol>
+        <a href="./smartbase-quickfill.user.js" class="btn btn-secondary" style="margin-top:0;">
+          ⚡ התקן Userscript (לאייפון / מחשב / Edge)
+        </a>
+      </details>
+    </section>
+  </main>
 </body>
 </html>
