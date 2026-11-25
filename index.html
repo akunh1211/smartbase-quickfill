@@ -2,784 +2,170 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#4f46e5" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="SmartBase ⚡" />
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="./icon.svg" />
-  <title>SmartBase ⚡ מילוי מהיר</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>התקנה — תוסף מילוי מהיר אוטומטי ל-SmartBase</title>
   <style>
-    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
     body {
       margin: 0;
       min-height: 100vh;
-      background: #f1f5f9;
-      color: #0f172a;
-      padding-bottom: 84px;
-    }
-
-    .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 30;
       background: linear-gradient(135deg, #4f46e5 0%, #6d28d9 100%);
-      color: #fff;
-      padding: 14px 16px 12px;
-      box-shadow: 0 4px 18px rgba(79, 70, 229, 0.25);
-    }
-    .topbar-row {
-      max-width: 560px;
-      margin: 0 auto;
+      color: #0f172a;
+      padding: 18px 14px 40px;
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+      justify-content: center;
     }
-    .brand { font-size: 17px; font-weight: 900; display: flex; align-items: center; gap: 6px; }
-    .brand-sub { font-size: 11px; opacity: 0.85; font-weight: 600; }
-    .open-sb-btn {
+    .wrap { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; }
+    .hero {
       background: #ffffff;
+      border-radius: 24px;
+      padding: 22px 18px;
+      box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+      text-align: center;
+    }
+    .badge {
+      display: inline-block;
+      background: #eef2ff;
       color: #4f46e5;
-      text-decoration: none;
-      padding: 8px 13px;
-      border-radius: 999px;
       font-size: 12px;
       font-weight: 800;
-      white-space: nowrap;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.15);
-    }
-
-    .container {
-      max-width: 560px;
-      margin: 0 auto;
-      padding: 12px 12px 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .card {
-      background: #ffffff;
-      border-radius: 20px;
-      padding: 14px;
-      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
-      border: 1px solid #e2e8f0;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .card-title {
-      font-size: 14px;
-      font-weight: 900;
-      color: #0f172a;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-    .pill-hint {
-      font-size: 11px;
-      font-weight: 700;
-      color: #4f46e5;
-      background: #eef2ff;
-      padding: 3px 8px;
+      padding: 5px 12px;
       border-radius: 999px;
+      margin-bottom: 10px;
     }
-
-    .input, .select {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1.5px solid #cbd5e1;
-      background: #f8fafc;
-      color: #0f172a;
-      font-size: 14px;
-      font-weight: 600;
-      outline: none;
-    }
-    .input:focus, .select:focus { border-color: #4f46e5; background: #fff; }
-    .input.stop-box { border-color: #10b981; background: #ecfdf5; }
-
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
-    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-
-    .copy-tile {
-      border: 1.5px solid #e2e8f0;
-      background: #f8fafc;
-      border-radius: 14px;
-      padding: 10px 10px;
-      text-align: right;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      transition: all .15s ease;
-      width: 100%;
-    }
-    .copy-tile:active { transform: scale(0.97); }
-    .copy-tile.copied {
-      border-color: #10b981;
-      background: #ecfdf5;
-    }
-    .copy-lbl { font-size: 11px; font-weight: 700; color: #64748b; display: flex; justify-content: space-between; }
-    .copy-val { font-size: 14px; font-weight: 800; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .copy-tile.copied .copy-lbl { color: #059669; }
-
+    h1 { margin: 0 0 8px; font-size: 22px; font-weight: 900; color: #0f172a; }
+    .lead { margin: 0 0 18px; font-size: 14px; color: #475569; line-height: 1.55; }
     .btn {
-      border: none;
-      border-radius: 14px;
-      padding: 12px 14px;
-      font-size: 14px;
-      font-weight: 800;
-      cursor: pointer;
-      width: 100%;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 8px;
       text-decoration: none;
+      border: none;
+      border-radius: 16px;
+      padding: 14px 18px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      width: 100%;
     }
-    .btn:active { opacity: 0.85; transform: scale(0.99); }
-    .btn-primary { background: #4f46e5; color: #fff; }
-    .btn-green { background: #059669; color: #fff; }
-    .btn-dark { background: #0f172a; color: #fff; padding: 10px; font-size: 13px; }
-    .btn-outline { background: #fff; color: #4f46e5; border: 1.5px solid #4f46e5; padding: 9px; font-size: 13px; }
-    .btn-sm { width: auto; padding: 7px 11px; font-size: 12px; border-radius: 10px; }
-    .btn-del { background: transparent; border: none; color: #e11d48; font-size: 12px; font-weight: 800; cursor: pointer; padding: 4px 8px; }
+    .btn-primary { background: #4f46e5; color: #fff; box-shadow: 0 10px 24px rgba(79, 70, 229, 0.35); margin-bottom: 10px; }
+    .btn-secondary { background: #f1f5f9; color: #1e293b; font-size: 14px; padding: 12px; }
 
-    .list-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+    .card {
+      background: #ffffff;
+      border-radius: 22px;
+      padding: 18px;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+    }
+    .card h2 { margin: 0 0 12px; font-size: 16px; font-weight: 900; color: #0f172a; }
+    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
+    .tab-btn {
+      border: 1.5px solid #e2e8f0;
       background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      padding: 9px 11px;
+      color: #475569;
+      padding: 9px 6px;
       border-radius: 12px;
       font-size: 13px;
-      font-weight: 600;
-      gap: 8px;
-    }
-    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-    .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: 40;
-      background: #ffffff;
-      border-top: 1px solid #e2e8f0;
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-      box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.06);
-    }
-    .nav-btn {
-      border: none;
-      background: transparent;
-      color: #64748b;
-      padding: 7px 4px;
-      border-radius: 12px;
-      font-size: 12px;
       font-weight: 800;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
       cursor: pointer;
     }
-    .nav-btn.active { color: #4f46e5; background: #eef2ff; }
-    .nav-ico { font-size: 17px; line-height: 1; }
-
-    .banner-import {
+    .tab-btn.active { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .steps { margin: 0; padding-right: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; color: #334155; line-height: 1.55; }
+    .note {
+      margin-top: 12px;
       background: #ecfdf5;
-      border: 1.5px solid #10b981;
-      border-radius: 16px;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .toast {
-      position: fixed;
-      top: 72px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #0f172a;
-      color: #fff;
-      padding: 10px 18px;
-      border-radius: 999px;
+      border: 1px solid #a7f3d0;
+      color: #065f46;
+      border-radius: 14px;
+      padding: 11px;
       font-size: 13px;
-      font-weight: 800;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-      z-index: 999;
-      display: none;
-      white-space: nowrap;
-      max-width: 92vw;
+      font-weight: 600;
+      line-height: 1.5;
     }
-    .toast.show { display: block; }
-
-    .sub-lbl { font-size: 11px; font-weight: 700; color: #64748b; display: block; margin-bottom: 3px; }
-    .footer-links {
-      text-align: center;
+    .warn {
+      margin-top: 12px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+      border-radius: 14px;
+      padding: 11px;
       font-size: 12px;
-      color: #64748b;
-      padding-top: 6px;
-      display: flex;
-      justify-content: center;
-      gap: 14px;
-      flex-wrap: wrap;
+      font-weight: 600;
+      line-height: 1.5;
     }
-    .footer-links a { color: #4f46e5; font-weight: 700; text-decoration: none; }
   </style>
 </head>
 <body>
-  <div id="toast" class="toast"></div>
-
-  <header class="topbar">
-    <div class="topbar-row">
-      <div>
-        <div class="brand">⚡ SmartBase מילוי מהיר</div>
-        <div class="brand-sub">עובד באייפון ובאנדרואיד • שמור מקומית במכשיר</div>
-      </div>
-      <a class="open-sb-btn" href="https://smartbase.digital.idf.il/#/home/requests" target="_blank" rel="noopener">
-        🚗 פתח SmartBase
+  <main class="wrap">
+    <section class="hero">
+      <span class="badge">תוסף מילוי אוטומטי אמיתי • 100% מקומי</span>
+      <h1>⚡ מילוי מהיר ל-SmartBase</h1>
+      <p class="lead">
+        מוסיף כפתור צף <strong>⚡ מילוי מהיר</strong> ישירות בתוך <code>smartbase.digital.idf.il</code> שממלא אוטומטית את שלבים 1, 2 ו-3 בלחיצה אחת.
+      </p>
+      <a href="./smartbase-quickfill.user.js" class="btn btn-primary">
+        ⬇️ התקן תוסף מילוי מהיר (Userscript)
       </a>
-    </div>
-  </header>
+      <a href="https://smartbase.digital.idf.il/#/home/requests" class="btn btn-secondary">
+        🚗 פתח את SmartBase
+      </a>
+    </section>
 
-  <main id="app" class="container"></main>
+    <section class="card">
+      <h2>📱 התקנה חד-פעמית (דקה אחת)</h2>
+      <div class="tabs">
+        <button class="tab-btn active" data-target="android" type="button">אנדרואיד</button>
+        <button class="tab-btn" data-target="iphone" type="button">אייפון</button>
+        <button class="tab-btn" data-target="pc" type="button">מחשב</button>
+      </div>
 
-  <nav class="bottom-nav">
-    <button class="nav-btn active" data-tab="quick" type="button">
-      <span class="nav-ico">⚡</span>
-      <span>העתקה מהירה</span>
-    </button>
-    <button class="nav-btn" data-tab="manage" type="button">
-      <span class="nav-ico">⚙️</span>
-      <span>רשימות ות"ז</span>
-    </button>
-    <button class="nav-btn" data-tab="share" type="button">
-      <span class="nav-ico">📤</span>
-      <span>שיתוף והתקנה</span>
-    </button>
-  </nav>
+      <div id="panel-android" class="panel active">
+        <ol class="steps">
+          <li>הורד מה-Play Store את <strong>Microsoft Edge</strong> או <strong>Firefox</strong>.</li>
+          <li>בתפריט הדפדפן היכנס ל<strong>הרחבות (Extensions)</strong> והתקן את <strong>Tampermonkey</strong> (או <strong>Violentmonkey</strong> ב-Firefox).</li>
+          <li>פתח את הדף הזה באותו דפדפן ולחץ למעלה על <strong>"⬇️ התקן תוסף מילוי מהיר"</strong> ← לחץ <strong>Install</strong>.</li>
+          <li>פתח את <strong>SmartBase</strong> — כפתור <strong>⚡ מילוי מהיר</strong> יופיע אוטומטית על המסך!</li>
+        </ol>
+        <div class="warn">
+          ℹ️ למה לא Chrome רגיל באנדרואיד? כי גוגל חוסמת תוספים בכרום לנייד. ב-Edge ו-Firefox התוספים מובנים ורשמיים, והתוסף גם מתעדכן אוטומטית.
+        </div>
+      </div>
+
+      <div id="panel-iphone" class="panel">
+        <ol class="steps">
+          <li>הורד מה-App Store את האפליקציה החינמית <strong>Userscripts</strong>.</li>
+          <li>היכנס ל<strong>הגדרות ← Safari ← הרחבות ← Userscripts</strong> והפעל הרשאה לאתרים.</li>
+          <li>לחץ למעלה על <strong>"⬇️ התקן תוסף מילוי מהיר"</strong> ושמור בתיקיית הסקריפטים של Userscripts.</li>
+          <li>פתח את <strong>SmartBase</strong> ב-Safari — כפתור <strong>⚡ מילוי מהיר</strong> יופיע אוטומטית!</li>
+        </ol>
+      </div>
+
+      <div id="panel-pc" class="panel">
+        <ol class="steps">
+          <li>התקן <strong>Tampermonkey</strong> ב-Chrome / Edge / Firefox.</li>
+          <li>לחץ למעלה על <strong>"⬇️ התקן תוסף מילוי מהיר"</strong> ← <strong>Install</strong>.</li>
+          <li>פתח את <strong>SmartBase</strong> — הכפתור הצף יופיע מיד.</li>
+        </ol>
+      </div>
+
+      <div class="note">
+        💡 <strong>טיפ ליחידה:</strong> אחרי שמישהו אחד מזין מסלולים, רכבים ומשלחים — לוחצים בתוסף על <strong>⚙️ רשימות ← העתק קוד שיתוף</strong> ושולחים בוואטסאפ לכולם (בלי הת"ז האישית).
+      </div>
+    </section>
+  </main>
 
   <script>
-    (function () {
-      'use strict';
-
-      const STORAGE_KEY = 'sb_pwa_v1';
-
-      function getDefaultData() {
-        return {
-          myId: '',
-          routes: [
-            { name: 'בית הלל ◄ מרחב צפון ◄ בית הלל', origin: 'בית הלל', stop: 'מרחב צפון', dest: 'בית הלל' }
-          ],
-          vehicles: [],
-          people: [],
-          lastOdometers: {}
-        };
-      }
-
-      function loadData() {
-        try {
-          const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
-          const def = getDefaultData();
-          if (!parsed || typeof parsed !== 'object') return def;
-          return {
-            myId: typeof parsed.myId === 'string' ? parsed.myId.replace(/\D/g, '').slice(0, 9) : '',
-            routes: Array.isArray(parsed.routes) ? parsed.routes : def.routes,
-            vehicles: Array.isArray(parsed.vehicles) ? parsed.vehicles : [],
-            people: Array.isArray(parsed.people) ? parsed.people : [],
-            lastOdometers: parsed.lastOdometers && typeof parsed.lastOdometers === 'object' ? parsed.lastOdometers : {}
-          };
-        } catch (_) {
-          return getDefaultData();
-        }
-      }
-
-      let data = loadData();
-      function saveData() {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
-      }
-
-      const state = {
-        tab: 'quick',
-        routeIdx: data.routes.length ? '0' : '',
-        origin: data.routes[0]?.origin || '',
-        stop: data.routes[0]?.stop || '',
-        dest: data.routes[0]?.dest || '',
-        plate: data.vehicles[0]?.plate || '',
-        copiedKey: '',
-        pendingImport: null
-      };
-
-      const appEl = document.getElementById('app');
-      const toastEl = document.getElementById('toast');
-      let toastTimer = null;
-
-      function showToast(msg) {
-        toastEl.textContent = msg;
-        toastEl.classList.add('show');
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
-      }
-
-      function esc(str) {
-        return String(str ?? '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;');
-      }
-
-      async function copyText(text, key, label) {
-        if (!text) { showToast('אין ערך להעתקה'); return; }
-        try {
-          await navigator.clipboard.writeText(text);
-        } catch (_) {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        }
-        state.copiedKey = key;
-        showToast(`✓ הועתק: ${label || text}`);
-        render();
-      }
-
-      // Encode/Decode Unicode-safe Base64 for 1-click WhatsApp unit sharing links
-      function encodeSharePayload(obj) {
-        const bytes = new TextEncoder().encode(JSON.stringify(obj));
-        let bin = '';
-        bytes.forEach(b => { bin += String.fromCharCode(b); });
-        return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      }
-
-      function decodeSharePayload(str) {
-        const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
-        const bin = atob(b64);
-        const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-        return JSON.parse(new TextDecoder().decode(bytes));
-      }
-
-      // Check if opened from a WhatsApp unit-import link (#import=...)
-      function checkUrlImport() {
-        const hash = window.location.hash || '';
-        if (hash.startsWith('#import=')) {
-          try {
-            const payload = decodeSharePayload(hash.slice('#import='.length));
-            if (payload && typeof payload === 'object') {
-              state.pendingImport = payload;
-            }
-          } catch (_) {}
-        }
-      }
-
-      function renderImportBanner() {
-        if (!state.pendingImport) return '';
-        const rCount = Array.isArray(state.pendingImport.routes) ? state.pendingImport.routes.length : 0;
-        const vCount = Array.isArray(state.pendingImport.vehicles) ? state.pendingImport.vehicles.length : 0;
-        const pCount = Array.isArray(state.pendingImport.people) ? state.pendingImport.people.length : 0;
-        return `
-          <div class="banner-import">
-            <div style="font-size:14px;font-weight:900;color:#065f46;">📥 התקבלה חבילת הגדרות יחידה!</div>
-            <div style="font-size:12px;color:#065f46;font-weight:600;">
-              כולל ${rCount} מסלולים, ${vCount} רכבים ו-${pCount} אנשי צוות/משלחים (ללא ת"ז אישית).
-            </div>
-            <div class="grid-2">
-              <button id="btn-accept-import" type="button" class="btn btn-green" style="padding:9px;font-size:13px;">✓ ייבא עכשיו</button>
-              <button id="btn-dismiss-import" type="button" class="btn btn-outline" style="padding:9px;font-size:13px;">ביטול</button>
-            </div>
-          </div>
-        `;
-      }
-
-      function renderQuickTab() {
-        const lastOdo = state.plate && data.lastOdometers[state.plate] ? data.lastOdometers[state.plate] : '';
-
-        appEl.innerHTML = `
-          ${renderImportBanner()}
-
-          <!-- Step 1: Route -->
-          <section class="card">
-            <div class="card-title">
-              <span>📍 שלב 1 — מסלול ועצירה</span>
-              <span class="pill-hint">גע כדי להעתיק</span>
-            </div>
-
-            <select id="q-route-sel" class="select">
-              <option value="">-- מסלול ידני / חדש --</option>
-              ${data.routes.map((r, i) => `<option value="${i}" ${String(state.routeIdx) === String(i) ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
-            </select>
-
-            <div class="grid-3">
-              <div>
-                <label class="sub-lbl">מוצא</label>
-                <input id="q-origin" class="input" type="text" value="${esc(state.origin)}" placeholder="מוצא" />
-              </div>
-              <div>
-                <label class="sub-lbl" style="color:#059669;">עצירה (עריכה)</label>
-                <input id="q-stop" class="input stop-box" type="text" value="${esc(state.stop)}" placeholder="עצירה" />
-              </div>
-              <div>
-                <label class="sub-lbl">יעד</label>
-                <input id="q-dest" class="input" type="text" value="${esc(state.dest)}" placeholder="יעד" />
-              </div>
-            </div>
-
-            <div class="grid-3">
-              <button type="button" class="copy-tile ${state.copiedKey === 'origin' ? 'copied' : ''}" data-copy-field="origin">
-                <span class="copy-lbl"><span>מוצא</span><span>${state.copiedKey === 'origin' ? '✓' : '📋'}</span></span>
-                <span class="copy-val">${esc(state.origin || '—')}</span>
-              </button>
-              <button type="button" class="copy-tile ${state.copiedKey === 'stop' ? 'copied' : ''}" data-copy-field="stop">
-                <span class="copy-lbl"><span>עצירה</span><span>${state.copiedKey === 'stop' ? '✓' : '📋'}</span></span>
-                <span class="copy-val">${esc(state.stop || 'ללא')}</span>
-              </button>
-              <button type="button" class="copy-tile ${state.copiedKey === 'dest' ? 'copied' : ''}" data-copy-field="dest">
-                <span class="copy-lbl"><span>יעד</span><span>${state.copiedKey === 'dest' ? '✓' : '📋'}</span></span>
-                <span class="copy-val">${esc(state.dest || '—')}</span>
-              </button>
-            </div>
-          </section>
-
-          <!-- Step 2: Vehicle & Odometer -->
-          <section class="card">
-            <div class="card-title">
-              <span>🚙 שלב 2 — רכב וקילומטראז'</span>
-              ${lastOdo ? `<span class="pill-hint">ק"מ אחרון: ${esc(lastOdo)}</span>` : ''}
-            </div>
-
-            ${data.vehicles.length ? `
-              <select id="q-veh-sel" class="select">
-                ${data.vehicles.map(v => `<option value="${esc(v.plate)}" ${state.plate === v.plate ? 'selected' : ''}>${esc(v.name)} — ${esc(v.plate)}</option>`).join('')}
-              </select>
-            ` : `<div style="font-size:12px;color:#64748b;">אין רכבים שמורים עדיין — הוסף בלשונית "⚙️ רשימות ות"ז".</div>`}
-
-            <div class="grid-2">
-              <button type="button" class="copy-tile ${state.copiedKey === 'plate' ? 'copied' : ''}" data-copy-val="${esc(state.plate)}" data-copy-key="plate" data-copy-lbl="מס' רכב">
-                <span class="copy-lbl"><span>מספר רכב</span><span>${state.copiedKey === 'plate' ? '✓' : '📋'}</span></span>
-                <span class="copy-val">${esc(state.plate || 'לא נבחר')}</span>
-              </button>
-              <div class="row" style="gap:6px;">
-                <input id="q-odo-in" class="input" type="text" inputmode="numeric" value="${esc(lastOdo)}" placeholder='עדכן ק"מ' style="padding:10px 8px;font-size:13px;" />
-                <button id="q-odo-save" type="button" class="btn btn-primary btn-sm" style="padding:10px 10px;">שמור</button>
-              </div>
-            </div>
-          </section>
-
-          <!-- Step 2b: IDs (Me & Team) -->
-          <section class="card">
-            <div class="card-title">
-              <span>🪪 צוות ומשלחים (העתקת ת"ז בלחיצה)</span>
-            </div>
-
-            <button type="button" class="copy-tile ${state.copiedKey === 'myId' ? 'copied' : ''}" data-copy-val="${esc(data.myId)}" data-copy-key="myId" data-copy-lbl='ת"ז שלי'>
-              <span class="copy-lbl"><span>תעודת הזהות שלי</span><span>${state.copiedKey === 'myId' ? '✓ הועתק' : '📋 לחץ להעתקה'}</span></span>
-              <span class="copy-val">${esc(data.myId || 'לחץ על "רשימות ות"ז" למטה להגדרה')}</span>
-            </button>
-
-            ${data.people.length ? `
-              <div class="grid-2">
-                ${data.people.map((p, idx) => `
-                  <button type="button" class="copy-tile ${state.copiedKey === 'p_' + idx ? 'copied' : ''}" data-copy-val="${esc(p.id)}" data-copy-key="p_${idx}" data-copy-lbl="${esc(p.name)}">
-                    <span class="copy-lbl"><span class="truncate">${esc(p.name)}</span><span>${state.copiedKey === 'p_' + idx ? '✓' : '📋'}</span></span>
-                    <span class="copy-val">${esc(p.id)}</span>
-                  </button>
-                `).join('')}
-              </div>
-            ` : `<div style="font-size:12px;color:#64748b;">הוסף משלחים/נהגים בלשונית "⚙️ רשימות ות"ז" — וב-SmartBase הנייד יושלם אוטומטית לפי הת"ז.</div>`}
-          </section>
-
-          <div class="footer-links">
-            <a href="./install.html">⚡ גרסת מילוי אוטומטי (Edge / Firefox / PC)</a>
-            <a href="./smartbase.html">🧪 דמו מלא</a>
-          </div>
-        `;
-
-        bindImportBanner();
-
-        document.getElementById('q-route-sel').addEventListener('change', e => {
-          state.routeIdx = e.target.value;
-          if (e.target.value !== '') {
-            const r = data.routes[Number(e.target.value)];
-            if (r) { state.origin = r.origin || ''; state.stop = r.stop || ''; state.dest = r.dest || ''; }
-          }
-          render();
-        });
-
-        document.getElementById('q-origin').addEventListener('input', e => { state.origin = e.target.value; });
-        document.getElementById('q-stop').addEventListener('input', e => { state.stop = e.target.value; });
-        document.getElementById('q-dest').addEventListener('input', e => { state.dest = e.target.value; });
-
-        const vehSel = document.getElementById('q-veh-sel');
-        if (vehSel) vehSel.addEventListener('change', e => { state.plate = e.target.value; render(); });
-
-        document.getElementById('q-odo-save').addEventListener('click', () => {
-          const val = document.getElementById('q-odo-in').value.replace(/\D/g, '');
-          if (!state.plate) { showToast('בחר קודם רכב'); return; }
-          if (!val) { showToast('הזן ספרות בלבד'); return; }
-          data.lastOdometers[state.plate] = val;
-          saveData();
-          copyText(val, 'odo', `ק"מ ${val}`);
-        });
-
-        appEl.querySelectorAll('[data-copy-field]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const f = btn.getAttribute('data-copy-field');
-            const val = f === 'origin' ? state.origin.trim() : f === 'stop' ? state.stop.trim() : state.dest.trim();
-            // Auto-save new route when copying origin/dest
-            if (state.origin.trim() && state.dest.trim()) {
-              const o = state.origin.trim(), s = state.stop.trim(), d = state.dest.trim();
-              const exists = data.routes.some(r => r.origin === o && r.stop === s && r.dest === d);
-              if (!exists) {
-                data.routes.unshift({ name: `${o}${s ? ` ◄ ${s}` : ''} ◄ ${d}`, origin: o, stop: s, dest: d });
-                state.routeIdx = '0';
-                saveData();
-              }
-            }
-            copyText(val, f, val);
-          });
-        });
-
-        appEl.querySelectorAll('[data-copy-val]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            copyText(btn.getAttribute('data-copy-val'), btn.getAttribute('data-copy-key'), btn.getAttribute('data-copy-lbl'));
-          });
-        });
-      }
-
-      function renderManageTab() {
-        appEl.innerHTML = `
-          ${renderImportBanner()}
-
-          <section class="card">
-            <div class="card-title">🪪 תעודת הזהות הקבועה שלי</div>
-            <div class="row">
-              <input id="m-myid" class="input" type="text" inputmode="numeric" maxlength="9" value="${esc(data.myId)}" placeholder="9 ספרות (נשמר רק בטלפון שלך)" />
-              <button id="m-save-myid" type="button" class="btn btn-primary btn-sm">שמור</button>
-            </div>
-          </section>
-
-          <section class="card">
-            <div class="card-title">📍 מסלולים קבועים</div>
-            <div class="grid-3">
-              <input id="m-ro" class="input" type="text" placeholder="מוצא" />
-              <input id="m-rs" class="input" type="text" placeholder="עצירה" />
-              <input id="m-rd" class="input" type="text" placeholder="יעד" />
-            </div>
-            <button id="m-add-route" type="button" class="btn btn-dark">+ הוסף מסלול</button>
-            ${data.routes.map((r, i) => `
-              <div class="list-item">
-                <span class="truncate">${esc(r.name)}</span>
-                <button type="button" class="btn-del" data-del-r="${i}">מחק</button>
-              </div>
-            `).join('')}
-          </section>
-
-          <section class="card">
-            <div class="card-title">🚙 רכבים שמורים</div>
-            <div class="grid-2">
-              <input id="m-vn" class="input" type="text" placeholder="כינוי (היילקס)" />
-              <input id="m-vp" class="input" type="text" placeholder="מס' צ' / רישוי" />
-            </div>
-            <button id="m-add-veh" type="button" class="btn btn-dark">+ הוסף רכב</button>
-            ${data.vehicles.map((v, i) => `
-              <div class="list-item">
-                <span class="truncate">${esc(v.name)} — ${esc(v.plate)}</span>
-                <button type="button" class="btn-del" data-del-v="${i}">מחק</button>
-              </div>
-            `).join('')}
-          </section>
-
-          <section class="card">
-            <div class="card-title">👥 אנשי צוות / משלחים (ללא טלפון)</div>
-            <div class="grid-2">
-              <input id="m-pn" class="input" type="text" placeholder="שם (דני משלח)" />
-              <input id="m-pi" class="input" type="text" inputmode="numeric" maxlength="9" placeholder='ת"ז (9 ספרות)' />
-            </div>
-            <button id="m-add-person" type="button" class="btn btn-dark">+ הוסף אדם</button>
-            ${data.people.map((p, i) => `
-              <div class="list-item">
-                <span class="truncate">${esc(p.name)} — ${esc(p.id)}</span>
-                <button type="button" class="btn-del" data-del-p="${i}">מחק</button>
-              </div>
-            `).join('')}
-          </section>
-        `;
-
-        bindImportBanner();
-
-        document.getElementById('m-save-myid').addEventListener('click', () => {
-          const val = document.getElementById('m-myid').value.replace(/\D/g, '').slice(0, 9);
-          if (val.length !== 9) { showToast('יש להזין 9 ספרות'); return; }
-          data.myId = val;
-          saveData();
-          showToast('תעודת הזהות נשמרה ✓');
-        });
-
-        document.getElementById('m-add-route').addEventListener('click', () => {
-          const o = document.getElementById('m-ro').value.trim();
-          const s = document.getElementById('m-rs').value.trim();
-          const d = document.getElementById('m-rd').value.trim();
-          if (!o || !d) { showToast('יש למלא מוצא ויעד'); return; }
-          data.routes.push({ name: `${o}${s ? ` ◄ ${s}` : ''} ◄ ${d}`, origin: o, stop: s, dest: d });
-          saveData();
-          showToast('המסלול נשמר ✓');
-          render();
-        });
-
-        document.getElementById('m-add-veh').addEventListener('click', () => {
-          const name = document.getElementById('m-vn').value.trim();
-          const plate = document.getElementById('m-vp').value.trim();
-          if (!name || !plate) { showToast('יש למלא כינוי ומספר רכב'); return; }
-          data.vehicles.push({ name, plate });
-          if (!state.plate) state.plate = plate;
-          saveData();
-          showToast('הרכב נשמר ✓');
-          render();
-        });
-
-        document.getElementById('m-add-person').addEventListener('click', () => {
-          const name = document.getElementById('m-pn').value.trim();
-          const id = document.getElementById('m-pi').value.replace(/\D/g, '').slice(0, 9);
-          if (!name || id.length !== 9) { showToast('יש למלא שם ות"ז בת 9 ספרות'); return; }
-          data.people.push({ name, id });
-          saveData();
-          showToast('נשמר ✓');
-          render();
-        });
-
-        appEl.querySelectorAll('[data-del-r]').forEach(b => b.addEventListener('click', () => {
-          data.routes.splice(Number(b.getAttribute('data-del-r')), 1);
-          saveData(); render();
-        }));
-        appEl.querySelectorAll('[data-del-v]').forEach(b => b.addEventListener('click', () => {
-          const rem = data.vehicles.splice(Number(b.getAttribute('data-del-v')), 1)[0];
-          if (rem && state.plate === rem.plate) state.plate = data.vehicles[0]?.plate || '';
-          saveData(); render();
-        }));
-        appEl.querySelectorAll('[data-del-p]').forEach(b => b.addEventListener('click', () => {
-          data.people.splice(Number(b.getAttribute('data-del-p')), 1);
-          saveData(); render();
-        }));
-      }
-
-      function renderShareTab() {
-        appEl.innerHTML = `
-          ${renderImportBanner()}
-
-          <section class="card">
-            <div class="card-title">📱 איך מתקינים כאפליקציה על המסך? (5 שניות)</div>
-            <div style="font-size:13px;color:#334155;line-height:1.6;">
-              <strong>באנדרואיד (Chrome):</strong> לחץ על <strong>3 הנקודות (⋮)</strong> למעלה ← <strong>הוסף למסך הבית</strong> ← התקן.<br/><br/>
-              <strong>באייפון (Safari):</strong> לחץ על כפתור ה<strong>שיתוף (⬆️)</strong> למטה ← <strong>הוסף למסך הבית</strong>.
-            </div>
-          </section>
-
-          <section class="card">
-            <div class="card-title">📤 שיתוף רשימות יחידה בוואטסאפ בלחיצה</div>
-            <div style="font-size:13px;color:#475569;line-height:1.5;">
-              שולח קישור אחד לוואטסאפ עם כל המסלולים, הרכבים והמשלחים שהגדרת — <strong>בלי תעודת הזהות האישית שלך</strong>. מי שלוחץ על הקישור מייבא הכל באייפון ובאנדרואיד בשנייה!
-            </div>
-            <button id="btn-wa-share" type="button" class="btn btn-green">💬 שלח קישור מוכן בוואטסאפ</button>
-            <button id="btn-copy-share-link" type="button" class="btn btn-outline">🔗 העתק קישור שיתוף</button>
-          </section>
-
-          <section class="card">
-            <div class="card-title">⚡ רוצה מילוי אוטומטי מלא בתוך SmartBase?</div>
-            <div style="font-size:13px;color:#475569;line-height:1.5;">
-              למשתמשי <strong>Edge / Firefox</strong> באנדרואיד, <strong>Safari + Userscripts</strong> באייפון, או מחשב — קיימת גם גרסת התוסף האוטומטי שממלאת את השדות ישירות.
-            </div>
-            <a href="./install.html" class="btn btn-primary">פתח דף התקנת התוסף האוטומטי</a>
-          </section>
-        `;
-
-        bindImportBanner();
-
-        function buildUnitShareUrl() {
-          const base = window.location.origin + window.location.pathname;
-          const encoded = encodeSharePayload({
-            routes: data.routes,
-            vehicles: data.vehicles,
-            people: data.people
-          });
-          return `${base}#import=${encoded}`;
-        }
-
-        document.getElementById('btn-wa-share').addEventListener('click', () => {
-          const url = buildUnitShareUrl();
-          const msg = `⚡ קישור מוכן לכרטיסי עבודה ב-SmartBase (כולל מסלולים, רכבים ומשלחים של היחידה):\n${url}`;
-          window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-        });
-
-        document.getElementById('btn-copy-share-link').addEventListener('click', () => {
-          copyText(buildUnitShareUrl(), 'sharelink', 'קישור השיתוף הועתק');
-        });
-      }
-
-      function bindImportBanner() {
-        const accept = document.getElementById('btn-accept-import');
-        const dismiss = document.getElementById('btn-dismiss-import');
-        if (accept) {
-          accept.addEventListener('click', () => {
-            const p = state.pendingImport;
-            if (Array.isArray(p.routes) && p.routes.length) data.routes = p.routes;
-            if (Array.isArray(p.vehicles) && p.vehicles.length) data.vehicles = p.vehicles;
-            if (Array.isArray(p.people) && p.people.length) data.people = p.people;
-            saveData();
-            state.routeIdx = data.routes.length ? '0' : '';
-            state.origin = data.routes[0]?.origin || '';
-            state.stop = data.routes[0]?.stop || '';
-            state.dest = data.routes[0]?.dest || '';
-            state.plate = data.vehicles[0]?.plate || '';
-            state.pendingImport = null;
-            history.replaceState(null, '', window.location.pathname);
-            showToast('הגדרות היחידה יובאו בהצלחה ✓');
-            render();
-          });
-        }
-        if (dismiss) {
-          dismiss.addEventListener('click', () => {
-            state.pendingImport = null;
-            history.replaceState(null, '', window.location.pathname);
-            render();
-          });
-        }
-      }
-
-      function render() {
-        document.querySelectorAll('.nav-btn').forEach(btn => {
-          btn.classList.toggle('active', btn.getAttribute('data-tab') === state.tab);
-        });
-        if (state.tab === 'quick') renderQuickTab();
-        else if (state.tab === 'manage') renderManageTab();
-        else renderShareTab();
-      }
-
-      document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          state.tab = btn.getAttribute('data-tab');
-          render();
-        });
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('panel-' + btn.getAttribute('data-target')).classList.add('active');
       });
-
-      checkUrlImport();
-      render();
-    })();
+    });
   </script>
 </body>
 </html>
