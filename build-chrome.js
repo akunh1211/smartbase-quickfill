@@ -7,22 +7,10 @@ const extPath = path.join(__dirname, 'chrome-extension', 'smartbase-quickfill.us
 const rawCode = fs.readFileSync(srcPath, 'utf8');
 fs.writeFileSync(extPath, rawCode, 'utf8');
 
-// 2. Build CSP-safe self-contained inline bookmarklet (no external <script src>, no eval/Function!)
-// Minimal safe URL encoding for Chrome bookmarklets: only encode %, #, and newlines so
-// it stays compact (~30KB instead of ~85KB) and well under Chrome Android's bookmark URL limit.
-const lines = rawCode.split(/\r?\n/);
-const compactLines = [];
-for (const line of lines) {
-  const trimmed = line.trim();
-  if (!trimmed) continue;
-  if (trimmed.startsWith('//')) continue;
-  compactLines.push(trimmed);
-}
-const compactCode = compactLines.join('\n');
-const bookmarklet = 'javascript:' + compactCode
-  .replace(/%/g, '%25')
-  .replace(/#/g, '%23')
-  .replace(/\n/g, '%0A');
+// 2. Build tiny (~240 chars) auto-updating Chrome Bookmarklet loader with diagnostic error alert.
+// Huge inline bookmarklets (>30KB) get silently truncated by Android Chrome's Edit Bookmark field.
+const hostedScriptUrl = 'https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js';
+const bookmarklet = `javascript:(function(){if(window.__SMARTBASE_QUICKFILL_LOADED__){var h=document.getElementById('sb-qf-host');if(h&&h.shadowRoot){var f=h.shadowRoot.getElementById('qf-fab');if(f)f.click();}return;}var s=document.createElement('script');s.src='${hostedScriptUrl}?t='+Date.now();s.onerror=function(){alert('האתר חוסם טעינה חיצונית בכרום (CSP). מומלץ לפתוח דרך Edge או Firefox + Tampermonkey.');};document.head.appendChild(s);})();`;
 
 const outBmPath = path.join(__dirname, 'chrome-bookmarklet.txt');
 fs.writeFileSync(outBmPath, bookmarklet, 'utf8');
@@ -45,4 +33,4 @@ if (fs.existsSync(installPath)) {
 }
 
 console.log('Copied to chrome-extension/smartbase-quickfill.user.js');
-console.log('Built chrome-bookmarklet.txt (' + bookmarklet.length + ' chars, raw compact: ' + compactCode.length + ' chars)');
+console.log('Built chrome-bookmarklet.txt (' + bookmarklet.length + ' chars)');
