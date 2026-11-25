@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      1.4.0
-// @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מסלולים קבועים עם עריכת עצירה, 40 מטרות מועדפות, רכבים, ת"ז קבועה ומעבר אוטומטי בין שלבים.
+// @version      1.5.0
+// @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: אשף רציף של כל השלבים ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
 // @updateURL    https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '1.4.0';
+  const SCRIPT_VERSION = '1.5.0';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -735,6 +735,82 @@
     return null;
   }
 
+  function waitForCondition(predicateFn, timeoutMs = 3500, intervalMs = 150) {
+    return new Promise(resolve => {
+      const start = Date.now();
+      const check = () => {
+        try {
+          const res = predicateFn();
+          if (res) { resolve(res); return; }
+        } catch (_) {}
+        if (Date.now() - start >= timeoutMs) { resolve(null); return; }
+        setTimeout(check, intervalMs);
+      };
+      check();
+    });
+  }
+
+  async function waitForOverlayToClose(timeoutMs = 700) {
+    await waitForCondition(() => {
+      const backdrop = document.querySelector('.cdk-overlay-backdrop');
+      return !backdrop || !isVisible(backdrop);
+    }, timeoutMs, 80);
+    await delay(100);
+  }
+
+  // Wait until SmartBase's "המשך" button is visible and enabled, then click it
+  async function clickEnabledNextButton(fieldKey, timeoutMs = 2500) {
+    const btn = await waitForCondition(() => {
+      const el = findField(fieldKey);
+      if (!el || !isVisible(el)) return null;
+      const disabled = el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('mat-button-disabled');
+      return disabled ? null : el;
+    }, timeoutMs, 140);
+    if (btn) {
+      robustClick(btn);
+      return true;
+    }
+    return false;
+  }
+
+  // Auto-open "מילוי כרטיס עבודה" directly from SmartBase Home ("עדכונים") screen!
+  async function ensureOnWorkTicketStep1() {
+    const isAlreadyStep1 = () => {
+      const t = document.body ? document.body.innerText : '';
+      return t.includes('תכנון הנסיעה') || t.includes('לאן נוסעים?');
+    };
+    if (isAlreadyStep1()) return true;
+
+    // 1. Check if the "פתיחת פעולה חדשה" sheet is already open with "מילוי כרטיס עבודה"
+    let workTicketBtn = findButtonByText(['מילוי כרטיס עבודה']);
+    if (!workTicketBtn) {
+      // 2. Click "+ פעולה חדשה" button on Home screen
+      const newActionBtn = findButtonByText(['פעולה חדשה', '+ פעולה חדשה']);
+      if (newActionBtn) {
+        robustClick(newActionBtn);
+      } else {
+        // Fallback: find any element carrying exact text "פעולה חדשה"
+        const exact = Array.from(document.querySelectorAll('*')).find(el => isVisible(el) && el.children.length <= 2 && el.textContent.trim().includes('פעולה חדשה'));
+        if (exact) robustClick(exact);
+      }
+
+      workTicketBtn = await waitForCondition(() => {
+        const b = findButtonByText(['מילוי כרטיס עבודה']);
+        if (b) return b;
+        const nodes = Array.from(document.querySelectorAll('*')).filter(el => isVisible(el) && el.children.length <= 2 && el.textContent.trim() === 'מילוי כרטיס עבודה');
+        return nodes[0] || null;
+      }, 2600, 120);
+    }
+
+    if (workTicketBtn) {
+      robustClick(workTicketBtn);
+      const arrived = await waitForCondition(isAlreadyStep1, 3500, 150);
+      await delay(250);
+      return Boolean(arrived);
+    }
+    return false;
+  }
+
   function detectCurrentPageStep() {
     const bodyText = document.body ? document.body.innerText : '';
     if (bodyText.includes('חתימה דיגיטלית') || bodyText.includes('קראתי והבנתי את ההנחיות') || bodyText.includes('אישור וחתימה')) {
@@ -746,7 +822,7 @@
     if (bodyText.includes('תכנון הנסיעה') || bodyText.includes('לאן נוסעים?')) {
       return 1;
     }
-    return extState.step;
+    return 0; // Home / other page
   }
 
   function buildUniqueSelector(el) {
@@ -1307,7 +1383,8 @@
 
   function openDrawer(autoDetect = true) {
     if (autoDetect && extState.tab === 'fill') {
-      extState.step = detectCurrentPageStep();
+      const detected = detectCurrentPageStep();
+      extState.step = detected > 0 ? detected : 1;
     }
     extState.open = true;
     applyTheme();
@@ -1345,6 +1422,270 @@
     } else {
       subtitleEl.textContent = 'שלב 3 • אישור הנחיות, חתימה וקילומטראז\'';
       renderStep3();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5B. Full End-to-End Autopilot Runner (Home -> Step 1 -> Step 2 -> Step 3 -> Signature!)
+  // ---------------------------------------------------------------------------
+  let isAutopilotRunning = false;
+
+  async function executeStep1OnPage() {
+    const cleanOrigin = extState.quickOrigin.trim();
+    const cleanStop = extState.quickStop.trim();
+    const cleanDest = extState.quickDest.trim();
+
+    const routeCard = findCardContainer('לאן נוסעים');
+    const originEl = findField('origin');
+    if (originEl && cleanOrigin) {
+      await fillSmartDropdownOrInput(originEl, cleanOrigin, routeCard);
+      await waitForOverlayToClose();
+    }
+
+    if (cleanStop) {
+      await addAndFillStopOnStep1(cleanStop);
+      await waitForOverlayToClose();
+    }
+
+    const destEl = findField('dest');
+    if (destEl && cleanDest) {
+      await fillSmartDropdownOrInput(destEl, cleanDest, routeCard);
+      await waitForOverlayToClose();
+    }
+
+    if (extState.quickPurpose) {
+      await selectPurposeOnStep1(extState.quickPurpose);
+      await waitForOverlayToClose();
+    }
+
+    const tripBtn = findButtonByText([extState.quickTripType]);
+    if (tripBtn) {
+      robustClick(tripBtn);
+      await delay(200);
+    }
+
+    const clickedNext = await clickEnabledNextButton('nextStep1Btn', 2500);
+    if (!clickedNext) return false;
+
+    const arrivedStep2 = await waitForCondition(() => detectCurrentPageStep() === 2, 3500, 150);
+    await delay(250);
+    return Boolean(arrivedStep2);
+  }
+
+  async function executeStep2OnPage() {
+    const NEW_ID_VAL = '__NEW__';
+
+    if (extState.selectedVehiclePlate) {
+      const plateEl = findField('plate');
+      if (plateEl) {
+        setNativeInputValue(plateEl, extState.selectedVehiclePlate);
+        await delay(150);
+      }
+    }
+
+    if (extState.driverChoice === 'me') {
+      const btn = findButtonByText(['אני נהג']);
+      if (btn) robustClick(btn);
+      await delay(200);
+      const drvEl = findField('driverId');
+      if (drvEl && isVisible(drvEl) && appData.myId) setNativeInputValue(drvEl, appData.myId);
+    } else {
+      const btn = findButtonByText(['בחירת נהג']);
+      if (btn) robustClick(btn);
+      await delay(260);
+      const drvId = extState.driverPersonId === NEW_ID_VAL ? extState.driverCustomId : extState.driverPersonId;
+      const drvEl = findField('driverId');
+      if (drvEl && drvId) {
+        setNativeInputValue(drvEl, drvId);
+        if (extState.driverPersonId === NEW_ID_VAL && drvId.length === 9) {
+          registerPersonIdForAutoName(drvId, 'driver', 'נהג');
+          extState.driverPersonId = drvId;
+          extState.driverCustomId = '';
+        }
+      }
+    }
+
+    if (extState.cmdChoice === 'me') {
+      const btn = findButtonByText(['אני מפקד משימה', 'אני מפקד']);
+      if (btn) robustClick(btn);
+      await delay(200);
+      const cmdEl = findField('cmdId');
+      if (cmdEl && isVisible(cmdEl) && appData.myId) setNativeInputValue(cmdEl, appData.myId);
+    } else {
+      const btn = findButtonByText(['בחירת מפקד משימה', 'בחירת מפקד']);
+      if (btn) robustClick(btn);
+      await delay(260);
+      const cmdId = extState.cmdPersonId === NEW_ID_VAL ? extState.cmdCustomId : extState.cmdPersonId;
+      const cmdEl = findField('cmdId');
+      if (cmdEl && cmdId) {
+        setNativeInputValue(cmdEl, cmdId);
+        if (extState.cmdPersonId === NEW_ID_VAL && cmdId.length === 9) {
+          registerPersonIdForAutoName(cmdId, 'cmd', 'מפקד משימה');
+          extState.cmdPersonId = cmdId;
+          extState.cmdCustomId = '';
+        }
+      }
+    }
+
+    const dispId = extState.dispPersonId === NEW_ID_VAL ? extState.dispCustomId : extState.dispPersonId;
+    if (dispId) {
+      const dispEl = findField('dispId');
+      if (dispEl) {
+        setNativeInputValue(dispEl, dispId);
+        dispEl.dispatchEvent(new Event('blur', { bubbles: true }));
+        if (extState.dispPersonId === NEW_ID_VAL && dispId.length === 9) {
+          registerPersonIdForAutoName(dispId, 'disp', 'מפקד משלח');
+          extState.dispPersonId = dispId;
+          extState.dispCustomId = '';
+        }
+      }
+    }
+
+    // Wait for SmartBase to resolve dispatcher's auto-phone & enable "המשך"
+    await delay(700);
+    const clickedNext = await clickEnabledNextButton('nextStep2Btn', 3000);
+    if (!clickedNext) return false;
+
+    const arrivedStep3 = await waitForCondition(() => {
+      const txt = document.body ? document.body.innerText : '';
+      return detectCurrentPageStep() === 3 || txt.includes('שמרנו את המשימה שלך');
+    }, 4000, 150);
+    await delay(250);
+    return Boolean(arrivedStep3);
+  }
+
+  async function executeStep3OnPage() {
+    const bodyNow = document.body ? document.body.innerText : '';
+    if (bodyNow.includes('שמרנו את המשימה שלך')) {
+      showToast('✓ הכרטיס נשמר בעמוד "עדכונים" (ממתין לחתימת הנהג)');
+      return true;
+    }
+
+    const cleanOdo = extState.quickOdometer.replace(/\D/g, '');
+    if (cleanOdo && extState.selectedVehiclePlate) {
+      appData.lastOdometers[extState.selectedVehiclePlate] = cleanOdo;
+      saveData();
+    }
+
+    // 1. Scroll down & check "קראתי והבנתי את ההנחיות." ONCE (never double-toggle!)
+    const ackEl = findField('ackCheckbox');
+    if (ackEl) {
+      try { ackEl.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
+      await delay(150);
+      const innerInput = ackEl.tagName === 'INPUT' ? ackEl : ackEl.querySelector('input[type="checkbox"]');
+      const alreadyChecked = innerInput ? innerInput.checked : ackEl.getAttribute('aria-checked') === 'true';
+      if (!alreadyChecked) {
+        // Click label/mat-checkbox once and verify
+        robustClick(ackEl);
+        await delay(250);
+        const nowChecked = innerInput ? innerInput.checked : ackEl.getAttribute('aria-checked') === 'true';
+        if (!nowChecked && innerInput && innerInput !== ackEl) {
+          robustClick(innerInput);
+        }
+      }
+    }
+
+    // 2. Wait up to 1.4s to see if checking the box automatically opens the "חתימה דיגיטלית" modal
+    let odoEl = await waitForCondition(() => {
+      const txt = document.body ? document.body.innerText : '';
+      if (txt.includes('חתימה דיגיטלית')) return findField('odometer') || true;
+      return null;
+    }, 1400, 150);
+
+    // 3. If modal didn't auto-open on checkbox check, click a visible signature/continue button on Step 3
+    if (!odoEl) {
+      const openSignBtn = findButtonByText(['פתח חתימה', 'חתימה דיגיטלית', 'חתימה', 'אישור וחתימה', 'המשך']);
+      if (openSignBtn && !openSignBtn.disabled) {
+        robustClick(openSignBtn);
+        odoEl = await waitForCondition(() => {
+          const txt = document.body ? document.body.innerText : '';
+          if (txt.includes('חתימה דיגיטלית')) return findField('odometer') || true;
+          if (txt.includes('שמרנו את המשימה שלך')) return 'SAVED';
+          return null;
+        }, 2200, 150);
+      }
+    }
+
+    if (odoEl === 'SAVED') {
+      showToast('✓ הכרטיס נשמר בעמוד "עדכונים" (ממתין לחתימת הנהג)');
+      return true;
+    }
+
+    // 4. Fill odometer inside the "חתימה דיגיטלית" modal!
+    if (cleanOdo) {
+      await delay(150);
+      const targetOdo = (odoEl && odoEl !== true) ? odoEl : findField('odometer');
+      if (targetOdo) {
+        setNativeInputValue(targetOdo, cleanOdo);
+        targetOdo.dispatchEvent(new Event('blur', { bubbles: true }));
+      }
+    }
+
+    showToast('✓ הכל מולא! חתום עם האצבע ושמור');
+    return true;
+  }
+
+  async function runFullAutopilot() {
+    if (isAutopilotRunning) return;
+
+    const cleanOrigin = extState.quickOrigin.trim();
+    const cleanStop = extState.quickStop.trim();
+    const cleanDest = extState.quickDest.trim();
+
+    if (!cleanOrigin || !cleanDest) {
+      extState.step = 1;
+      render();
+      showToast('יש למלא מוצא ויעד בשלב 1');
+      return;
+    }
+
+    // Persist route & purpose popularity once for the full ticket
+    const savedIdx = autoSaveRouteIfNew(cleanOrigin, cleanStop, cleanDest, extState.quickPurpose, extState.quickTripType);
+    if (savedIdx !== null) extState.selectedRouteIdx = String(savedIdx);
+    recordPurposeUsage(extState.quickPurpose);
+
+    isAutopilotRunning = true;
+    closeDrawer();
+
+    try {
+      let pageStep = detectCurrentPageStep();
+
+      if (pageStep === 0) {
+        showToast('⚡ פותח כרטיס עבודה חדש...');
+        const opened = await ensureOnWorkTicketStep1();
+        if (!opened) {
+          showToast('לא הצלחתי לפתוח כרטיס אוטומטית — פתח ידנית ונסה שוב');
+          return;
+        }
+        pageStep = 1;
+      }
+
+      if (pageStep === 1) {
+        showToast('⚡ ממלא שלב 1/3 (מסלול, עצירה ומטרה)...');
+        const ok1 = await executeStep1OnPage();
+        if (!ok1) {
+          showToast('שלב 1 מולא — בדוק את השדות ולחץ המשך');
+          return;
+        }
+        pageStep = 2;
+      }
+
+      if (pageStep === 2) {
+        showToast('⚡ ממלא שלב 2/3 (רכב, צוות ומשלח)...');
+        const ok2 = await executeStep2OnPage();
+        if (!ok2) {
+          showToast('שלב 2 מולא — בדוק את השדות ולחץ המשך');
+          return;
+        }
+        pageStep = 3;
+      }
+
+      if (pageStep === 3) {
+        showToast('⚡ מאשר שלב 3/3 ופותח חתימה...');
+        await executeStep3OnPage();
+      }
+    } finally {
+      isAutopilotRunning = false;
     }
   }
 
@@ -1408,8 +1749,8 @@
         </div>
       </div>
 
-      <button id="ext-run-step1" type="button" class="run-btn">
-        ⚡ מלא שלב 1 ועבור לשלב 2
+      <button id="ext-next-step1" type="button" class="run-btn">
+        המשך לשלב 2: רכב וצוות ←
       </button>
     `;
 
@@ -1447,62 +1788,13 @@
       });
     });
 
-    shadow.getElementById('ext-run-step1').addEventListener('click', async () => {
-      const cleanOrigin = extState.quickOrigin.trim();
-      const cleanStop = extState.quickStop.trim();
-      const cleanDest = extState.quickDest.trim();
-
-      if (!cleanOrigin || !cleanDest) {
+    shadow.getElementById('ext-next-step1').addEventListener('click', () => {
+      if (!extState.quickOrigin.trim() || !extState.quickDest.trim()) {
         showToast('יש למלא לפחות מוצא ויעד');
         return;
       }
-
-      const savedIdx = autoSaveRouteIfNew(cleanOrigin, cleanStop, cleanDest, extState.quickPurpose, extState.quickTripType);
-      if (savedIdx !== null) extState.selectedRouteIdx = String(savedIdx);
-      recordPurposeUsage(extState.quickPurpose);
-
-      closeDrawer();
-      await delay(120);
-
-      let filled = 0;
-      const routeCard = findCardContainer('לאן נוסעים');
-
-      const originEl = findField('origin');
-      if (originEl) { await fillSmartDropdownOrInput(originEl, cleanOrigin, routeCard); filled++; }
-
-      if (cleanStop) {
-        const stopOk = await addAndFillStopOnStep1(cleanStop);
-        if (stopOk) filled++;
-      }
-
-      const destEl = findField('dest');
-      if (destEl) { await fillSmartDropdownOrInput(destEl, cleanDest, routeCard); filled++; }
-
-      if (extState.quickPurpose) {
-        const purposeOk = await selectPurposeOnStep1(extState.quickPurpose);
-        if (purposeOk) filled++;
-      }
-
-      const tripBtn = findButtonByText([extState.quickTripType]);
-      if (tripBtn) { robustClick(tripBtn); filled++; }
-
-      if (filled === 0) {
-        showToast('פתח תחילה "מילוי כרטיס עבודה" (שלב 1) ב-SmartBase');
-        return;
-      }
-
-      await delay(280);
-      const nextBtn = findField('nextStep1Btn');
-      const isDisabled = nextBtn && (nextBtn.disabled || nextBtn.getAttribute('aria-disabled') === 'true');
-      if (nextBtn && !isDisabled) {
-        robustClick(nextBtn);
-        extState.step = 2;
-        showToast('שלב 1 מולא • עבר אוטומטית לשלב 2 ✓');
-        await delay(400);
-        openDrawer(false);
-      } else {
-        showToast('שלב 1 מולא — בדוק את השדות ולחץ המשך');
-      }
+      extState.step = 2;
+      render();
     });
   }
 
@@ -1533,9 +1825,9 @@
         </div>
         ${extState.driverChoice === 'person' ? `
           <select id="ext-sel-driver-person" class="select">
-            <option value="">-- בחר נהג --</option>
-            ${peopleOpts}
             <option value="${NEW_ID_VAL}">➕ הזנת תעודת זהות חדשה...</option>
+            <option value="">-- בחר נהג מהרשימה --</option>
+            ${peopleOpts}
           </select>
           ${isDriverNew ? `
             <input id="ext-custom-driver-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.driverCustomId)}" placeholder="הזן 9 ספרות של הנהג" />
@@ -1551,9 +1843,9 @@
         </div>
         ${extState.cmdChoice === 'person' ? `
           <select id="ext-sel-cmd-person" class="select">
-            <option value="">-- בחר מפקד משימה --</option>
-            ${peopleOpts}
             <option value="${NEW_ID_VAL}">➕ הזנת תעודת זהות חדשה...</option>
+            <option value="">-- בחר מפקד משימה מהרשימה --</option>
+            ${peopleOpts}
           </select>
           ${isCmdNew ? `
             <input id="ext-custom-cmd-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.cmdCustomId)}" placeholder="הזן 9 ספרות של מפקד המשימה" />
@@ -1564,18 +1856,19 @@
       <div class="card">
         <label class="lbl" style="margin:0;">מפקד משלח (נייד אוטומטי)</label>
         <select id="ext-sel-disp-person" class="select">
-          <option value="">-- בחר משלח --</option>
-          ${peopleOpts}
           <option value="${NEW_ID_VAL}">➕ הזנת תעודת זהות חדשה...</option>
+          <option value="">-- בחר משלח מהרשימה --</option>
+          ${peopleOpts}
         </select>
         ${isDispNew ? `
           <input id="ext-custom-disp-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.dispCustomId)}" placeholder="הזן 9 ספרות של המשלח" />
         ` : ''}
       </div>
 
-      <button id="ext-run-step2" type="button" class="run-btn">
-        ⚡ מלא שלב 2 ועבור לשלב 3
-      </button>
+      <div class="row" style="gap:8px;">
+        <button id="ext-back-step1" type="button" class="sm-btn" style="min-height:52px;padding:0 16px;">→ חזור</button>
+        <button id="ext-next-step2" type="button" class="run-btn" style="flex:1;">המשך לשלב 3: ק"מ וחתימה ←</button>
+      </div>
     `;
 
     shadow.getElementById('ext-sel-vehicle').addEventListener('change', e => { extState.selectedVehiclePlate = e.target.value; });
@@ -1636,94 +1929,23 @@
       });
     }
 
-    shadow.getElementById('ext-run-step2').addEventListener('click', async () => {
-      closeDrawer();
-      await delay(100);
-
-      if (extState.selectedVehiclePlate) {
-        const plateEl = findField('plate');
-        if (plateEl) setNativeInputValue(plateEl, extState.selectedVehiclePlate);
-      }
-
-      if (extState.driverChoice === 'me') {
-        const btn = findButtonByText(['אני נהג']);
-        if (btn) robustClick(btn);
-        await delay(180);
-        const drvEl = findField('driverId');
-        if (drvEl && isVisible(drvEl) && appData.myId) setNativeInputValue(drvEl, appData.myId);
-      } else {
-        const btn = findButtonByText(['בחירת נהג']);
-        if (btn) robustClick(btn);
-        await delay(220);
-        const drvId = extState.driverPersonId === NEW_ID_VAL ? extState.driverCustomId : extState.driverPersonId;
-        const drvEl = findField('driverId');
-        if (drvEl && drvId) {
-          setNativeInputValue(drvEl, drvId);
-          if (extState.driverPersonId === NEW_ID_VAL && drvId.length === 9) {
-            registerPersonIdForAutoName(drvId, 'driver', 'נהג');
-            extState.driverPersonId = drvId;
-            extState.driverCustomId = '';
-          }
-        }
-      }
-
-      if (extState.cmdChoice === 'me') {
-        const btn = findButtonByText(['אני מפקד משימה', 'אני מפקד']);
-        if (btn) robustClick(btn);
-        await delay(180);
-        const cmdEl = findField('cmdId');
-        if (cmdEl && isVisible(cmdEl) && appData.myId) setNativeInputValue(cmdEl, appData.myId);
-      } else {
-        const btn = findButtonByText(['בחירת מפקד משימה', 'בחירת מפקד']);
-        if (btn) robustClick(btn);
-        await delay(220);
-        const cmdId = extState.cmdPersonId === NEW_ID_VAL ? extState.cmdCustomId : extState.cmdPersonId;
-        const cmdEl = findField('cmdId');
-        if (cmdEl && cmdId) {
-          setNativeInputValue(cmdEl, cmdId);
-          if (extState.cmdPersonId === NEW_ID_VAL && cmdId.length === 9) {
-            registerPersonIdForAutoName(cmdId, 'cmd', 'מפקד משימה');
-            extState.cmdPersonId = cmdId;
-            extState.cmdCustomId = '';
-          }
-        }
-      }
-
-      const dispId = extState.dispPersonId === NEW_ID_VAL ? extState.dispCustomId : extState.dispPersonId;
-      if (dispId) {
-        const dispEl = findField('dispId');
-        if (dispEl) {
-          setNativeInputValue(dispEl, dispId);
-          if (extState.dispPersonId === NEW_ID_VAL && dispId.length === 9) {
-            registerPersonIdForAutoName(dispId, 'disp', 'מפקד משלח');
-            extState.dispPersonId = dispId;
-            extState.dispCustomId = '';
-          }
-        }
-      }
-
-      await delay(550);
-      const nextBtn = findField('nextStep2Btn');
-      const isDisabled = nextBtn && (nextBtn.disabled || nextBtn.getAttribute('aria-disabled') === 'true');
-      if (nextBtn && !isDisabled) {
-        robustClick(nextBtn);
-        extState.step = 3;
-        showToast('שלב 2 מולא • עבר אוטומטית לשלב 3 ✓');
-        await delay(400);
-        openDrawer(false);
-      } else {
-        showToast('שלב 2 מולא — בדוק את השדות ולחץ המשך');
-      }
-    });
+    shadow.getElementById('ext-back-step1').addEventListener('click', () => { extState.step = 1; render(); });
+    shadow.getElementById('ext-next-step2').addEventListener('click', () => { extState.step = 3; render(); });
   }
 
   function renderStep3() {
     const plate = extState.selectedVehiclePlate;
     const lastOdo = plate && appData.lastOdometers ? appData.lastOdometers[plate] : '';
+    const routePreview = `${extState.quickOrigin || '—'}${extState.quickStop ? ` ◄ ${extState.quickStop}` : ''} ◄ ${extState.quickDest || '—'}`;
+    const driverTxt = extState.driverChoice === 'me' ? 'אני' : (extState.driverPersonId === '__NEW__' ? extState.driverCustomId : extState.driverPersonId || 'לא נבחר');
+    const cmdTxt = extState.cmdChoice === 'me' ? 'אני' : (extState.cmdPersonId === '__NEW__' ? extState.cmdCustomId : extState.cmdPersonId || 'לא נבחר');
 
     bodyEl.innerHTML = `
-      <div class="card emerald" style="font-size:13px;font-weight:700;">
-        ✓ סימון ההנחיות, הזנת קילומטראז' ופתיחת חתימה בנגיעה אחת.
+      <div class="card accent" style="font-size:12px;gap:5px;">
+        <div style="font-weight:900;font-size:13px;">📋 סיכום לפני מילוי אוטומטי מלא:</div>
+        <div><strong>מסלול:</strong> ${escapeHtml(routePreview)}</div>
+        <div><strong>מטרה וסוג:</strong> ${escapeHtml(extState.quickPurpose)} • ${escapeHtml(extState.quickTripType)}</div>
+        <div><strong>רכב וצוות:</strong> ${escapeHtml(plate || 'לא נבחר')} • נהג: ${escapeHtml(driverTxt)} • מפקד: ${escapeHtml(cmdTxt)}</div>
       </div>
 
       <div class="card">
@@ -1734,9 +1956,12 @@
         <input id="ext-q-odo" class="input odo-big" type="text" inputmode="numeric" value="${escapeHtml(extState.quickOdometer)}" placeholder="${lastOdo ? escapeHtml(lastOdo) : '84250'}" />
       </div>
 
-      <button id="ext-run-step3-sign" type="button" class="run-btn">
-        ⚡ אשר הנחיות, מלא ק"מ ופתח חתימה
-      </button>
+      <div class="row" style="gap:8px;">
+        <button id="ext-back-step2" type="button" class="sm-btn" style="min-height:52px;padding:0 16px;">→ חזור</button>
+        <button id="ext-run-all" type="button" class="run-btn" style="flex:1;">
+          ⚡ מלא כרטיס עבודה מלא (שלב 1 ← 3)
+        </button>
+      </div>
     `;
 
     shadow.getElementById('ext-q-odo').addEventListener('input', e => {
@@ -1745,40 +1970,8 @@
       extState.quickOdometer = clean;
     });
 
-    shadow.getElementById('ext-run-step3-sign').addEventListener('click', async () => {
-      closeDrawer();
-      await delay(100);
-
-      const ackEl = findField('ackCheckbox');
-      if (ackEl) {
-        const innerInput = ackEl.tagName === 'INPUT' ? ackEl : ackEl.querySelector('input[type="checkbox"]');
-        if (!innerInput || !innerInput.checked) {
-          robustClick(ackEl);
-          if (innerInput && !innerInput.checked) robustClick(innerInput);
-        }
-      }
-
-      const cleanOdo = extState.quickOdometer.replace(/\D/g, '');
-      if (cleanOdo && extState.selectedVehiclePlate) {
-        appData.lastOdometers[extState.selectedVehiclePlate] = cleanOdo;
-        saveData();
-      }
-
-      if (!findField('odometer')) {
-        const openSignBtn = findButtonByText(['פתח חתימה', 'חתימה דיגיטלית', 'חתימה', 'המשך']);
-        if (openSignBtn) {
-          robustClick(openSignBtn);
-          await delay(350);
-        }
-      }
-
-      if (cleanOdo) {
-        const odoEl = findField('odometer');
-        if (odoEl) setNativeInputValue(odoEl, cleanOdo);
-      }
-
-      showToast('ההנחיות אושרו • חלון החתימה והק"מ מוכן ✓');
-    });
+    shadow.getElementById('ext-back-step2').addEventListener('click', () => { extState.step = 2; render(); });
+    shadow.getElementById('ext-run-all').addEventListener('click', runFullAutopilot);
   }
 
   function renderManage() {
