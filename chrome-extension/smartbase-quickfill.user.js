@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      3.0.0
+// @version      3.1.0
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מנוע React Fiber ישיר לאשף רציף ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '3.0.0';
+  const SCRIPT_VERSION = '3.1.0';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -156,7 +156,9 @@
         customSelectors: parsed.customSelectors && typeof parsed.customSelectors === 'object' ? parsed.customSelectors : {},
         routes: Array.isArray(parsed.routes) ? parsed.routes : def.routes,
         vehicles: Array.isArray(parsed.vehicles) ? parsed.vehicles : [],
-        people: Array.isArray(parsed.people) ? parsed.people : []
+        people: Array.isArray(parsed.people) ? parsed.people : [],
+        signature: Array.isArray(parsed.signature) ? parsed.signature : [],
+        autoSaveSign: parsed.autoSaveSign !== false
       };
     } catch (_) {
       return getDefaultData();
@@ -1595,7 +1597,7 @@
           <div class="sheet-title-wrap">
             <span style="font-size:20px;">⚡</span>
             <div>
-              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v3.0</span></h2>
+              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v3.1</span></h2>
               <p id="qf-subtitle" class="sheet-sub">שלב 1 • תכנון נסיעה ומסלולים</p>
             </div>
           </div>
@@ -2216,7 +2218,7 @@
         }
       }
 
-      showToast('✓ הכל מולא! חתום עם האצבע ושמור');
+      await finishSignatureAndSave();
       return true;
     }
 
@@ -2272,8 +2274,165 @@
       }
     }
 
-    showToast('✓ הכל מולא! חתום עם האצבע ושמור');
+    await finishSignatureAndSave();
     return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5C. Auto-Signature: replays the user's OWN saved signature on SmartBase's
+  //     "חתימה דיגיטלית" canvas (signature_pad) and optionally presses "שמירה"
+  // ---------------------------------------------------------------------------
+  function replaySignatureOnCanvas(canvas, strokes, mode) {
+    try { canvas.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
+    const r = canvas.getBoundingClientRect();
+    const pad = 0.1;
+    const toXY = p => [
+      r.left + r.width * (pad + Number(p[0]) * (1 - 2 * pad)),
+      r.top + r.height * (pad + Number(p[1]) * (1 - 2 * pad))
+    ];
+    const usePointer = mode !== 'mouse' && typeof window.PointerEvent === 'function';
+    const fire = (type, x, y, buttons) => {
+      const base = {
+        bubbles: true, cancelable: true, composed: true, view: window,
+        clientX: x, clientY: y, screenX: x, screenY: y, button: 0, buttons
+      };
+      try {
+        if (usePointer) {
+          canvas.dispatchEvent(new PointerEvent('pointer' + type, {
+            ...base, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+            pressure: buttons ? 0.5 : 0, width: 1, height: 1
+          }));
+        } else {
+          canvas.dispatchEvent(new MouseEvent('mouse' + type, base));
+        }
+      } catch (_) {}
+    };
+    for (const stroke of strokes) {
+      if (!Array.isArray(stroke) || stroke.length === 0) continue;
+      const [x0, y0] = toXY(stroke[0]);
+      fire('down', x0, y0, 1);
+      for (let i = 1; i < stroke.length; i++) {
+        const [x, y] = toXY(stroke[i]);
+        fire('move', x, y, 1);
+      }
+      const [xl, yl] = toXY(stroke[stroke.length - 1]);
+      fire('up', xl, yl, 0);
+    }
+  }
+
+  function findSignDialogSaveButton() {
+    const btns = Array.from(document.querySelectorAll('.MuiDialog-root button, [role="dialog"] button'))
+      .filter(b => !b.closest('#sb-qf-host'));
+    return btns.find(b => b.textContent.trim() === 'שמירה והתחלת נסיעה') ||
+           btns.find(b => b.textContent.trim() === 'שמירה') ||
+           btns.find(b => b.textContent.includes('שמירה')) || null;
+  }
+
+  async function finishSignatureAndSave() {
+    const strokes = Array.isArray(appData.signature) ? appData.signature : [];
+    if (strokes.length === 0) {
+      showToast('✓ מולא! חתום עם האצבע ושמור (לחתימה אוטומטית — שמור חתימה ב"ניהול רשימות")');
+      return false;
+    }
+
+    const canvas = await waitForCondition(() => {
+      return Array.from(document.querySelectorAll('.MuiDialog-root canvas, [role="dialog"] canvas'))
+        .find(c => !c.closest('#sb-qf-host') && c.getBoundingClientRect().width > 20) || null;
+    }, 3000, 120);
+
+    if (!canvas) {
+      showToast('✓ מולא! חתום עם האצבע ושמור');
+      return false;
+    }
+
+    replaySignatureOnCanvas(canvas, strokes, 'pointer');
+    await delay(300);
+
+    let saveBtn = findSignDialogSaveButton();
+    if (saveBtn && saveBtn.disabled) {
+      // Older signature_pad builds listen to mouse events only
+      replaySignatureOnCanvas(canvas, strokes, 'mouse');
+      await delay(300);
+      saveBtn = findSignDialogSaveButton();
+    }
+
+    if (!saveBtn || saveBtn.disabled) {
+      showToast('✓ מולא ונחתם — בדוק ולחץ "שמירה"');
+      return false;
+    }
+
+    if (appData.autoSaveSign) {
+      const rp = getReactProps(saveBtn);
+      if (rp && typeof rp.onClick === 'function') {
+        rp.onClick({ preventDefault() {}, stopPropagation() {} });
+      } else {
+        robustClick(saveBtn);
+      }
+      showToast('✓ הכרטיס נחתם ונשמר — נסיעה טובה!');
+      return true;
+    }
+
+    highlightPageEl(saveBtn);
+    showToast('✓ מולא ונחתם — לחץ "שמירה" לסיום');
+    return true;
+  }
+
+  function wireSignaturePad(canvas, onChange) {
+    const strokes = (Array.isArray(appData.signature) ? appData.signature : []).map(s => s.slice());
+    const ctx = canvas.getContext('2d');
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, rect.width * dpr);
+      canvas.height = Math.max(1, rect.height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      redraw();
+    };
+    const redraw = () => {
+      const rect = canvas.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const s of strokes) {
+        if (!s.length) continue;
+        ctx.beginPath();
+        ctx.moveTo(s[0][0] * rect.width, s[0][1] * rect.height);
+        for (let i = 1; i < s.length; i++) ctx.lineTo(s[i][0] * rect.width, s[i][1] * rect.height);
+        if (s.length === 1) ctx.lineTo(s[0][0] * rect.width + 0.5, s[0][1] * rect.height + 0.5);
+        ctx.stroke();
+      }
+    };
+    let current = null;
+    const pt = e => {
+      const rect = canvas.getBoundingClientRect();
+      return [
+        Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+        Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height))
+      ].map(v => Math.round(v * 1000) / 1000);
+    };
+    canvas.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+      current = [pt(e)];
+      strokes.push(current);
+      redraw();
+    });
+    canvas.addEventListener('pointermove', e => {
+      if (!current) return;
+      e.preventDefault();
+      current.push(pt(e));
+      redraw();
+    });
+    const end = () => { if (current) { current = null; onChange && onChange(strokes); } };
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+    requestAnimationFrame(resize);
+    return {
+      clear() { strokes.length = 0; redraw(); onChange && onChange(strokes); },
+      get() { return strokes.filter(s => s.length > 0); }
+    };
   }
 
   async function runFullAutopilot() {
@@ -2607,6 +2766,20 @@
         <input id="ext-q-odo" class="input odo-big" type="text" inputmode="numeric" value="${escapeHtml(extState.quickOdometer)}" placeholder="${lastOdo ? escapeHtml(lastOdo) : '84250'}" />
       </div>
 
+      <div class="card">
+        <div class="row">
+          <span class="lbl" style="margin:0;">✍️ הסכמה + חתימה אוטומטית</span>
+          <span style="font-size:12px;font-weight:800;color:${(appData.signature || []).length ? 'var(--emerald-border)' : 'var(--danger)'};">
+            ${(appData.signature || []).length ? 'חתימה שמורה ✓' : 'אין חתימה שמורה'}
+          </span>
+        </div>
+        ${(appData.signature || []).length ? '' : `<button id="ext-go-sign" type="button" class="sm-btn primary" style="width:100%;">✍️ שמור את החתימה שלי (פעם אחת)</button>`}
+        <label class="row" style="justify-content:flex-start;gap:8px;font-size:13px;font-weight:700;cursor:pointer;">
+          <input id="ext-auto-save" type="checkbox" ${appData.autoSaveSign ? 'checked' : ''} style="width:20px;height:20px;" />
+          ללחוץ "שמירה והתחלת נסיעה" אוטומטית בסוף
+        </label>
+      </div>
+
       <div class="row" style="gap:8px;">
         <button id="ext-back-step2" type="button" class="sm-btn" style="min-height:52px;padding:0 16px;">→ חזור</button>
         <button id="ext-run-all" type="button" class="run-btn" style="flex:1;">
@@ -2621,6 +2794,13 @@
       extState.quickOdometer = clean;
     });
 
+    shadow.getElementById('ext-auto-save').addEventListener('change', e => {
+      appData.autoSaveSign = e.target.checked;
+      saveData();
+    });
+    const goSign = shadow.getElementById('ext-go-sign');
+    if (goSign) goSign.addEventListener('click', () => { extState.tab = 'manage'; render(); });
+
     shadow.getElementById('ext-back-step2').addEventListener('click', () => { extState.step = 2; render(); });
     shadow.getElementById('ext-run-all').addEventListener('click', runFullAutopilot);
   }
@@ -2632,6 +2812,21 @@
         <div class="row">
           <input id="mgmt-my-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(appData.myId)}" placeholder="9 ספרות" />
           <button id="mgmt-save-my-id" type="button" class="sm-btn primary">שמור</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <label class="lbl" style="margin:0;">✍️ החתימה שלי (לחתימה אוטומטית)</label>
+          <span id="sig-status" style="font-size:12px;font-weight:800;color:${(appData.signature || []).length ? 'var(--emerald-border)' : 'var(--text-muted)'};">
+            ${(appData.signature || []).length ? 'שמורה ✓' : 'לא שמורה'}
+          </span>
+        </div>
+        <span class="sub-lbl">חתום כאן באצבע פעם אחת — החתימה תועתק לחלון "חתימה דיגיטלית". נשמרת רק במכשיר.</span>
+        <canvas id="sig-pad" style="width:100%;height:150px;background:#ffffff;border-radius:12px;border:1.5px dashed var(--border);touch-action:none;display:block;"></canvas>
+        <div class="grid-2">
+          <button id="sig-clear" type="button" class="sm-btn" style="width:100%;">מחיקה</button>
+          <button id="sig-save" type="button" class="sm-btn emerald" style="width:100%;">שמור חתימה</button>
         </div>
       </div>
 
@@ -2724,6 +2919,18 @@
       extState.editingMyId = false;
       saveData();
       showToast('תעודת הזהות הקבועה נשמרה ✓');
+    });
+
+    const sigPad = wireSignaturePad(shadow.getElementById('sig-pad'));
+    shadow.getElementById('sig-clear').addEventListener('click', () => sigPad.clear());
+    shadow.getElementById('sig-save').addEventListener('click', () => {
+      const strokes = sigPad.get();
+      const totalPts = strokes.reduce((n, s) => n + s.length, 0);
+      if (totalPts < 8) { showToast('חתום חתימה מלאה לפני השמירה'); return; }
+      appData.signature = strokes;
+      saveData();
+      showToast('החתימה נשמרה ✓');
+      render();
     });
 
     shadow.getElementById('btn-add-route').addEventListener('click', () => {
