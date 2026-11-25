@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      1.6.0
+// @version      1.7.0
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: אשף רציף של כל השלבים ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '1.6.0';
+  const SCRIPT_VERSION = '1.7.0';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -258,24 +258,50 @@
   // ---------------------------------------------------------------------------
   // 3. Robust Angular / Material DOM Engine for smartbase.digital.idf.il
   // ---------------------------------------------------------------------------
-  // Strict visibility check that ALSO filters out offscreen Angular <mat-stepper> inactive panes!
+  // Bulletproof visibility check: walks ancestors to reject Angular <mat-stepper> inactive panes
+  // hidden via height:0 + overflow:hidden, opacity:0, visibility:hidden, or horizontal offscreen transforms!
   function isVisible(el) {
     if (!el || el.nodeType !== 1) return false;
     if (el.closest('#sb-qf-host')) return false;
-    if (el.closest('[aria-hidden="true"], .mat-horizontal-stepper-content-inactive, .cdk-visually-hidden')) return false;
+    if (el.closest('[aria-hidden="true"], [aria-expanded="false"], .mat-horizontal-stepper-content-inactive, .cdk-visually-hidden')) return false;
+
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) return false;
+
     const rect = el.getBoundingClientRect();
     if (rect.width <= 1 || rect.height <= 1) return false;
-    // Inactive horizontal stepper panes are translated outside [0, innerWidth]
     if (rect.right <= 4 || rect.left >= window.innerWidth - 4) return false;
+
+    let isFixed = style.position === 'fixed';
+    let p = el.parentElement;
+    while (p && p !== document.body && p !== document.documentElement) {
+      const ps = window.getComputedStyle(p);
+      if (ps.display === 'none' || ps.visibility === 'hidden' || parseFloat(ps.opacity) === 0) return false;
+      if (!isFixed) {
+        const clipsX = ps.overflowX === 'hidden' || ps.overflowX === 'clip';
+        const clipsY = ps.overflowY === 'hidden' || ps.overflowY === 'clip';
+        if (clipsX || clipsY) {
+          const pr = p.getBoundingClientRect();
+          if (pr.width <= 2 || pr.height <= 2) return false;
+          if (clipsX && (rect.right <= pr.left + 2 || rect.left >= pr.right - 2)) return false;
+          if (clipsY && p.scrollHeight <= p.clientHeight + 2 && (rect.bottom <= pr.top + 2 || rect.top >= pr.bottom - 2)) return false;
+        }
+      }
+      if (ps.position === 'fixed') isFixed = true;
+      p = p.parentElement;
+    }
     return true;
   }
 
   function hasVisibleText(phrase) {
-    const nodes = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, p, span, div, label, button, mat-card-title'))
-      .filter(el => el.children.length <= 1 && isVisible(el) && el.textContent.trim().includes(phrase));
-    return nodes.length > 0;
+    const nodes = document.querySelectorAll('*');
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      if (el.children.length === 0 && el.textContent && el.textContent.trim().includes(phrase)) {
+        if (isVisible(el)) return true;
+      }
+    }
+    return false;
   }
 
   function delay(ms) {
@@ -820,34 +846,31 @@
     }
 
     if (ticketTextNode) {
-      // Try clicking the row container first, and if needed the text element itself
       const rowEl = ticketTextNode.closest('button, a, li, mat-list-item, ion-item, [role="button"], [role="listitem"]') ||
         (ticketTextNode.parentElement && ticketTextNode.parentElement.getBoundingClientRect().height < 110 ? ticketTextNode.parentElement : null);
 
-      const candidates = rowEl ? [rowEl, ticketTextNode] : [ticketTextNode];
-      for (const target of candidates) {
-        robustClick(target);
-        const arrived = await waitForCondition(() => detectCurrentPageStep() === 1, 2200, 150);
-        if (arrived) {
-          await delay(300);
-          return true;
-        }
+      // Click once cleanly and wait up to 7 seconds for SmartBase network load to reach Step 1!
+      robustClick(rowEl || ticketTextNode);
+      let arrived = await waitForCondition(() => detectCurrentPageStep() === 1, 3200, 150);
+      if (!arrived && rowEl) {
+        robustClick(ticketTextNode);
+        arrived = await waitForCondition(() => detectCurrentPageStep() === 1, 4500, 150);
+      }
+      if (arrived) {
+        await delay(350);
+        return true;
       }
     }
-    return false;
+    return detectCurrentPageStep() === 1;
   }
 
-  // Strictly checks ON-SCREEN visible headings (never fooled by hidden Angular stepper steps in body.innerText!)
+  // Strictly checks ON-SCREEN visible headings in natural order (1 -> 2 -> 3, with modal priority)
   function detectCurrentPageStep() {
-    if (hasVisibleText('חתימה דיגיטלית') || hasVisibleText('קראתי והבנתי את ההנחיות') || hasVisibleText('אישור וחתימה')) {
-      return 3;
-    }
-    if (hasVisibleText('שיבוץ רכב וצוות') || hasVisibleText('בחירת מפקד משלח')) {
-      return 2;
-    }
-    if (hasVisibleText('תכנון הנסיעה') || hasVisibleText('לאן נוסעים?')) {
-      return 1;
-    }
+    try { window.scrollTo(0, 0); } catch (_) {}
+    if (hasVisibleText('חתימה דיגיטלית')) return 3;
+    if (hasVisibleText('תכנון הנסיעה') || hasVisibleText('לאן נוסעים?')) return 1;
+    if (hasVisibleText('שיבוץ רכב וצוות') || hasVisibleText('בחירת מפקד משלח')) return 2;
+    if (hasVisibleText('אישור וחתימה') || hasVisibleText('קראתי והבנתי את ההנחיות')) return 3;
     return 0;
   }
 
@@ -1353,7 +1376,7 @@
           <div class="sheet-title-wrap">
             <span style="font-size:20px;">⚡</span>
             <div>
-              <h2 class="sheet-title">מילוי מהיר • SmartBase</h2>
+              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v1.7</span></h2>
               <p id="qf-subtitle" class="sheet-sub">שלב 1 • תכנון נסיעה ומסלולים</p>
             </div>
           </div>
@@ -1490,11 +1513,11 @@
       await delay(200);
     }
 
-    const clickedNext = await clickEnabledNextButton('nextStep1Btn', 2500);
+    const clickedNext = await clickEnabledNextButton('nextStep1Btn', 3500);
     if (!clickedNext) return false;
 
-    const arrivedStep2 = await waitForCondition(() => detectCurrentPageStep() === 2, 3500, 150);
-    await delay(250);
+    const arrivedStep2 = await waitForCondition(() => detectCurrentPageStep() === 2, 6000, 150);
+    await delay(300);
     return Boolean(arrivedStep2);
   }
 
@@ -1568,15 +1591,15 @@
     }
 
     // Wait for SmartBase to resolve dispatcher's auto-phone & enable "המשך"
-    await delay(700);
-    const clickedNext = await clickEnabledNextButton('nextStep2Btn', 3000);
+    await delay(800);
+    const clickedNext = await clickEnabledNextButton('nextStep2Btn', 4000);
     if (!clickedNext) return false;
 
     const arrivedStep3 = await waitForCondition(() => {
       const txt = document.body ? document.body.innerText : '';
       return detectCurrentPageStep() === 3 || txt.includes('שמרנו את המשימה שלך');
-    }, 4000, 150);
-    await delay(250);
+    }, 6500, 150);
+    await delay(300);
     return Boolean(arrivedStep3);
   }
 
