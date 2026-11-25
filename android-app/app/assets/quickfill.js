@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      1.3.0
+// @version      1.4.0
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מסלולים קבועים עם עריכת עצירה, 40 מטרות מועדפות, רכבים, ת"ז קבועה ומעבר אוטומטי בין שלבים.
 // @author       SmartBase QuickFill
 // @downloadURL  https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '1.3.0';
+  const SCRIPT_VERSION = '1.4.0';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -68,9 +68,10 @@
   function getDefaultData() {
     return {
       myId: '',
-      theme: 'dark', // Focused dark mode by default
+      theme: 'dark',
       purposeCounts: { 'תפקיד': 1 },
       lastOdometers: {},
+      pendingNameLookup: {},
       customSelectors: {},
       routes: [
         {
@@ -151,6 +152,7 @@
         theme: parsed.theme === 'light' ? 'light' : 'dark',
         purposeCounts: parsed.purposeCounts && typeof parsed.purposeCounts === 'object' ? parsed.purposeCounts : def.purposeCounts,
         lastOdometers: parsed.lastOdometers && typeof parsed.lastOdometers === 'object' ? parsed.lastOdometers : {},
+        pendingNameLookup: parsed.pendingNameLookup && typeof parsed.pendingNameLookup === 'object' ? parsed.pendingNameLookup : {},
         customSelectors: parsed.customSelectors && typeof parsed.customSelectors === 'object' ? parsed.customSelectors : {},
         routes: Array.isArray(parsed.routes) ? parsed.routes : def.routes,
         vehicles: Array.isArray(parsed.vehicles) ? parsed.vehicles : [],
@@ -422,7 +424,8 @@
     return false;
   }
 
-  // Dedicated Bulletproof Handler for "הוספת עצירה" on real SmartBase Step 1
+  // Dedicated Handler for "הוספת עצירה" on real SmartBase Step 1:
+  // Click ONLY the exact text "הוספת עצירה" (NOT the '+' icon!) -> wait for "עצירה שנוספה" input -> fill & pick option.
   async function addAndFillStopOnStep1(stopText) {
     const cleanStop = String(stopText || '').trim();
     if (!cleanStop) return false;
@@ -439,48 +442,58 @@
       return true;
     }
 
-    // Real SmartBase: locate the "לאן נוסעים" card
     const routeCard = findCardContainer('לאן נוסעים') || document;
     const inputSel = 'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, mat-select, [role="combobox"]';
     const getVisibleRouteInputs = () => Array.from(routeCard.querySelectorAll(inputSel)).filter(isVisible);
 
+    const findAddedStopInput = (beforeSet) => {
+      const current = getVisibleRouteInputs();
+      // 1. Direct match by SmartBase's exact label "עצירה שנוספה"
+      const byLabel = current.find(el => getAccessibleLabel(el).includes('עצירה שנוספה') || getAccessibleLabel(el).includes('עצירה'));
+      if (byLabel && (!beforeSet || !beforeSet.has(byLabel))) return byLabel;
+      // 2. Any newly added input that didn't exist before clicking "הוספת עצירה"
+      if (beforeSet) {
+        const newly = current.find(el => !beforeSet.has(el));
+        if (newly) return newly;
+      }
+      // 3. If 3+ inputs exist (origin, stop, dest), return the middle one
+      if (current.length >= 3) return current[1];
+      return null;
+    };
+
     const beforeInputs = getVisibleRouteInputs();
-    let stopInput = null;
+    let stopInput = beforeInputs.length >= 3 ? findAddedStopInput(null) : null;
 
-    // If a stop field is ALREADY open (>= 3 inputs in route card: origin, stop, dest), use the middle one
-    if (beforeInputs.length >= 3) {
-      stopInput = beforeInputs[1];
-    } else {
-      // Find the "הוספת עצירה" text node AND its clickable row / purple '+' circle button
-      const textNodes = Array.from(routeCard.querySelectorAll('span, p, div, button, label, a'))
-        .filter(el => isVisible(el) && el.children.length <= 2 && el.textContent.trim().includes('הוספת עצירה'));
+    if (!stopInput) {
+      const beforeSet = new Set(beforeInputs);
 
-      // Sort smallest / deepest element first (the actual label "הוספת עצירה")
-      textNodes.sort((a, b) => a.textContent.trim().length - b.textContent.trim().length);
-      const labelEl = textNodes[0] || findField('addStopBtn');
+      // Search ALL visible elements across document (excluding #sb-qf-host) for exact text "הוספת עצירה"
+      const exactTextEls = Array.from(document.querySelectorAll('*'))
+        .filter(el => {
+          if (!isVisible(el)) return false;
+          if (el.tagName === 'SVG' || el.tagName === 'PATH' || el.tagName === 'MAT-ICON') return false;
+          const t = el.textContent.trim();
+          return t === 'הוספת עצירה';
+        });
 
-      const clickTargets = [];
-      if (labelEl) {
-        clickTargets.push(labelEl);
-        // Also check parent clickable row & any button/icon sibling inside that row (the purple '+' circle)
-        const rowEl = labelEl.closest('button, [role="button"], .row, div');
-        if (rowEl && rowEl !== routeCard && rowEl.getBoundingClientRect().height < 90) {
-          const plusBtn = rowEl.querySelector('button, mat-icon, svg, [role="button"]');
-          if (plusBtn && plusBtn !== labelEl) clickTargets.push(plusBtn);
-          if (rowEl !== labelEl) clickTargets.push(rowEl);
+      // Deepest / innermost element carrying the exact phrase "הוספת עצירה" first (never the '+' icon!)
+      exactTextEls.sort((a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length);
+
+      const targets = [];
+      if (exactTextEls.length > 0) {
+        targets.push(exactTextEls[0]);
+        if (exactTextEls[0].parentElement && exactTextEls[0].parentElement !== routeCard) {
+          targets.push(exactTextEls[0].parentElement);
         }
       }
 
-      const beforeSet = new Set(beforeInputs);
-      for (const target of clickTargets) {
+      for (const target of targets) {
         robustClick(target);
-        // Wait up to 750ms for a NEW input to appear in the route card
-        for (let attempt = 0; attempt < 6; attempt++) {
-          await delay(130);
-          const afterInputs = getVisibleRouteInputs();
-          const newlyAdded = afterInputs.find(inp => !beforeSet.has(inp));
-          if (newlyAdded) {
-            stopInput = newlyAdded;
+        for (let attempt = 0; attempt < 9; attempt++) {
+          await delay(140);
+          const found = findAddedStopInput(beforeSet);
+          if (found) {
+            stopInput = found;
             break;
           }
         }
@@ -488,11 +501,8 @@
       }
     }
 
-    if (!stopInput) {
-      // Last fallback: check calibrated selector
-      const calStop = appData.customSelectors && appData.customSelectors.stop
-        ? document.querySelector(appData.customSelectors.stop)
-        : null;
+    if (!stopInput && appData.customSelectors && appData.customSelectors.stop) {
+      const calStop = document.querySelector(appData.customSelectors.stop);
       if (calStop && isVisible(calStop)) stopInput = calStop;
     }
 
@@ -764,38 +774,101 @@
     return path.join(' > ');
   }
 
-  function tryLearnPersonNameNearInput(inputEl, idVal, roleLabel) {
+  function registerPersonIdForAutoName(idVal, roleKey, roleLabel) {
     const cleanId = String(idVal || '').replace(/\D/g, '');
     if (cleanId.length !== 9 || cleanId === appData.myId) return;
-    if (appData.people.some(p => p.id === cleanId)) return;
 
-    setTimeout(() => {
-      let discoveredName = '';
-      if (inputEl) {
-        const card = inputEl.closest('mat-card, section, form, div') || inputEl.parentElement;
-        if (card) {
-          const texts = Array.from(card.querySelectorAll('p, span, div, strong'))
-            .filter(n => n !== inputEl && !n.contains(inputEl) && isVisible(n))
-            .map(n => n.textContent.trim())
-            .filter(t => t.length >= 3 && t.length <= 45 && /[\u0590-\u05FF]/.test(t));
+    if (!appData.pendingNameLookup || typeof appData.pendingNameLookup !== 'object') {
+      appData.pendingNameLookup = {};
+    }
+    appData.pendingNameLookup[roleKey] = cleanId;
 
-          const match = texts.find(t =>
-            t.includes('זוהה') ||
-            (!t.includes('תעודת זהות') && !t.includes('בחירת') && !t.includes('נייד') && !t.includes('אני ') && t.split(' ').length >= 2)
-          );
-          if (match) {
-            discoveredName = match
-              .replace(/✓|זוהה ב-SmartBase:?/g, '')
-              .replace(new RegExp(`\\(?${cleanId}\\)?`, 'g'), '')
-              .trim();
+    const existing = appData.people.find(p => p.id === cleanId);
+    if (!existing) {
+      appData.people.push({ name: 'ממתין לשם', id: cleanId, role: roleLabel, needsName: true });
+      showToast(`ת"ז ${cleanId} נשמרה — השם יושלם אוטומטית בפתיחת הכרטיס`);
+    }
+    saveData();
+  }
+
+  // Automatically pulls real Hebrew names from an open SmartBase work ticket ("צוות משימה")
+  // and updates any saved person who entered a new ID without a name!
+  function scrapeOpenTicketNamesAndOdometer() {
+    const bodyText = document.body ? document.body.innerText : '';
+    if (!bodyText.includes('צוות משימה')) return;
+
+    const roleMap = [
+      { key: 'driver', label: 'נהג' },
+      { key: 'disp', label: 'מפקד משלח' },
+      { key: 'cmd', label: 'מפקד משימה' }
+    ];
+
+    let updatedNames = [];
+
+    for (const role of roleMap) {
+      const pendingId = appData.pendingNameLookup && appData.pendingNameLookup[role.key];
+      // Also check if any saved person has needsName:true for this role
+      const isPlaceholderName = (p) =>
+        Boolean(p.needsName) ||
+        p.name === 'ממתין לשם' ||
+        /^(משלח|נהג|מפקד משימה)\s*\(\d{4}\)$/.test(String(p.name || '').trim());
+
+      const targetPerson =
+        (pendingId && appData.people.find(p => p.id === pendingId)) ||
+        appData.people.find(p => isPlaceholderName(p) && (p.role === role.label || (role.key === 'disp' && p.role === 'משלח')));
+
+      if (!targetPerson) continue;
+
+      // Find the exact role label element (e.g. "מפקד משלח", "נהג", "מפקד משימה") under "צוות משימה"
+      const roleNodes = Array.from(document.querySelectorAll('*'))
+        .filter(el => isVisible(el) && el.children.length === 0 && el.textContent.trim() === role.label);
+
+      for (const roleNode of roleNodes) {
+        // Look at previous sibling or parent's children for the Hebrew full name right above the role label
+        let nameText = '';
+        if (roleNode.previousElementSibling && isVisible(roleNode.previousElementSibling)) {
+          nameText = roleNode.previousElementSibling.textContent.trim();
+        }
+        if (!nameText && roleNode.parentElement) {
+          const sibTexts = Array.from(roleNode.parentElement.children)
+            .filter(c => c !== roleNode && isVisible(c))
+            .map(c => c.textContent.trim())
+            .filter(t => t.length >= 3 && t.length <= 40 && /[\u0590-\u05FF]/.test(t) && !t.includes('ענ"א') && !t.includes('ק"מ'));
+          if (sibTexts.length > 0) nameText = sibTexts[0];
+        }
+
+        if (nameText && nameText.length >= 3 && /[\u0590-\u05FF]/.test(nameText) && nameText !== role.label) {
+          const prevName = targetPerson.name;
+          if (targetPerson.needsName || prevName === 'ממתין לשם' || prevName.includes('(')) {
+            targetPerson.name = nameText;
+            targetPerson.needsName = false;
+            if (appData.pendingNameLookup && appData.pendingNameLookup[role.key] === targetPerson.id) {
+              delete appData.pendingNameLookup[role.key];
+            }
+            updatedNames.push(nameText);
+            break;
           }
         }
       }
-      const finalName = discoveredName ? `${discoveredName} (${roleLabel})` : `${roleLabel} (${cleanId.slice(-4)})`;
-      appData.people.push({ name: finalName, id: cleanId, role: roleLabel });
+    }
+
+    // Bonus: auto-update last odometer from "פרטי הרכב" (e.g. "מספר רכב צ- 727198", "ק"מ סופי 32397")
+    const plateMatch = bodyText.match(/מספר רכב\s*צ?-?\s*(\d{4,9})/);
+    const odoMatch = bodyText.match(/ק"מ סופי\s*(\d{2,7})/) || bodyText.match(/ק"מ התחלתי\s*(\d{2,7})/);
+    if (plateMatch && odoMatch) {
+      const p = plateMatch[1];
+      const o = odoMatch[1];
+      if (!appData.lastOdometers) appData.lastOdometers = {};
+      if (appData.lastOdometers[p] !== o) {
+        appData.lastOdometers[p] = o;
+        saveData();
+      }
+    }
+
+    if (updatedNames.length > 0) {
       saveData();
-      showToast(`נשמר אוטומטית למאגר: ${finalName}`);
-    }, 650);
+      showToast(`✓ שם נשמר מהכרטיס: ${updatedNames.join(', ')}`);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -854,21 +927,21 @@
 
       .quickfill-fab {
         position: fixed;
-        bottom: 92px;
-        left: 16px;
+        top: 58px;
+        right: 10px;
         z-index: 2147483646;
         background: linear-gradient(135deg, #0f172a 0%, #312e81 100%);
         color: #ffffff;
-        border: 2px solid #818cf8;
+        border: 1.5px solid #818cf8;
         border-radius: 9999px;
-        padding: 11px 17px;
-        font-size: 14px;
+        padding: 7px 13px;
+        font-size: 12px;
         font-weight: 800;
-        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.45);
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.35);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        gap: 7px;
+        gap: 5px;
         transition: transform 0.15s ease;
       }
       .quickfill-fab:active { transform: scale(0.95); }
@@ -1434,28 +1507,16 @@
   }
 
   function renderStep2() {
-    const peopleOpts = appData.people.length
-      ? appData.people.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.id)})</option>`).join('')
-      : '<option value="">אין אנשים שמורים ברשימה</option>';
+    const NEW_ID_VAL = '__NEW__';
+    const peopleOpts = appData.people
+      .map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.id)})</option>`)
+      .join('');
+
+    const isDriverNew = extState.driverPersonId === NEW_ID_VAL;
+    const isCmdNew = extState.cmdPersonId === NEW_ID_VAL;
+    const isDispNew = extState.dispPersonId === NEW_ID_VAL;
 
     bodyEl.innerHTML = `
-      <div class="card">
-        ${extState.editingMyId ? `
-          <div class="row">
-            <input id="ext-inline-myid" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(appData.myId)}" placeholder="הזן 9 ספרות של הת&quot;ז שלך" />
-            <button id="ext-save-inline-myid" type="button" class="sm-btn emerald">שמור</button>
-          </div>
-        ` : `
-          <div class="row">
-            <div>
-              <span class="sub-lbl" style="margin:0;">תעודת הזהות הקבועה שלי</span>
-              <strong style="font-size:15px;">${escapeHtml(appData.myId || 'לא הוגדרה')}</strong>
-            </div>
-            <button id="ext-edit-inline-myid" type="button" class="sm-btn">✏️ ערוך</button>
-          </div>
-        `}
-      </div>
-
       <div class="card">
         <label class="lbl" style="margin:0;">מספר הרכב</label>
         <select id="ext-sel-vehicle" class="select">
@@ -1472,10 +1533,13 @@
         </div>
         ${extState.driverChoice === 'person' ? `
           <select id="ext-sel-driver-person" class="select">
-            <option value="">-- בחר מהמאגר או הזן ת"ז חדשה --</option>
+            <option value="">-- בחר נהג --</option>
             ${peopleOpts}
+            <option value="${NEW_ID_VAL}">➕ הזנת תעודת זהות חדשה...</option>
           </select>
-          <input id="ext-custom-driver-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.driverCustomId)}" placeholder="או הזן ת&quot;ז חדשה (9 ספרות)" />
+          ${isDriverNew ? `
+            <input id="ext-custom-driver-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.driverCustomId)}" placeholder="הזן 9 ספרות של הנהג" />
+          ` : ''}
         ` : ''}
       </div>
 
@@ -1487,20 +1551,26 @@
         </div>
         ${extState.cmdChoice === 'person' ? `
           <select id="ext-sel-cmd-person" class="select">
-            <option value="">-- בחר מהמאגר או הזן ת"ז חדשה --</option>
+            <option value="">-- בחר מפקד משימה --</option>
             ${peopleOpts}
+            <option value="${NEW_ID_VAL}">➕ הזנת תעודת זהות חדשה...</option>
           </select>
-          <input id="ext-custom-cmd-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.cmdCustomId)}" placeholder="או הזן ת&quot;ז חדשה (9 ספרות)" />
+          ${isCmdNew ? `
+            <input id="ext-custom-cmd-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.cmdCustomId)}" placeholder="הזן 9 ספרות של מפקד המשימה" />
+          ` : ''}
         ` : ''}
       </div>
 
       <div class="card">
         <label class="lbl" style="margin:0;">מפקד משלח (נייד אוטומטי)</label>
         <select id="ext-sel-disp-person" class="select">
-          <option value="">-- בחר משלח או הזן ת"ז חדשה --</option>
+          <option value="">-- בחר משלח --</option>
           ${peopleOpts}
+          <option value="${NEW_ID_VAL}">➕ הזנת תעודת זהות חדשה...</option>
         </select>
-        <input id="ext-custom-disp-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.dispCustomId)}" placeholder="או הזן ת&quot;ז משלח חדש (9 ספרות)" />
+        ${isDispNew ? `
+          <input id="ext-custom-disp-id" class="input" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.dispCustomId)}" placeholder="הזן 9 ספרות של המשלח" />
+        ` : ''}
       </div>
 
       <button id="ext-run-step2" type="button" class="run-btn">
@@ -1508,30 +1578,18 @@
       </button>
     `;
 
-    const editBtn = shadow.getElementById('ext-edit-inline-myid');
-    if (editBtn) editBtn.addEventListener('click', () => { extState.editingMyId = true; render(); });
-
-    const saveBtn = shadow.getElementById('ext-save-inline-myid');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', () => {
-        const val = shadow.getElementById('ext-inline-myid').value.replace(/\D/g, '').slice(0, 9);
-        if (val.length !== 9) { showToast('יש להזין 9 ספרות'); return; }
-        appData.myId = val;
-        saveData();
-        extState.editingMyId = false;
-        showToast('תעודת הזהות הקבועה עודכנה ✓');
-        render();
-      });
-    }
-
     shadow.getElementById('ext-sel-vehicle').addEventListener('change', e => { extState.selectedVehiclePlate = e.target.value; });
     shadow.querySelectorAll('[data-d-choice]').forEach(b => b.addEventListener('click', () => { extState.driverChoice = b.getAttribute('data-d-choice'); render(); }));
     shadow.querySelectorAll('[data-c-choice]').forEach(b => b.addEventListener('click', () => { extState.cmdChoice = b.getAttribute('data-c-choice'); render(); }));
 
     const selDrv = shadow.getElementById('ext-sel-driver-person');
     if (selDrv) {
-      selDrv.value = extState.driverCustomId ? '' : extState.driverPersonId;
-      selDrv.addEventListener('change', e => { extState.driverPersonId = e.target.value; extState.driverCustomId = ''; });
+      selDrv.value = extState.driverPersonId || '';
+      selDrv.addEventListener('change', e => {
+        extState.driverPersonId = e.target.value;
+        if (e.target.value !== NEW_ID_VAL) extState.driverCustomId = '';
+        render();
+      });
     }
     const custDrv = shadow.getElementById('ext-custom-driver-id');
     if (custDrv) {
@@ -1539,14 +1597,17 @@
         const c = e.target.value.replace(/\D/g, '').slice(0, 9);
         e.target.value = c;
         extState.driverCustomId = c;
-        if (c && selDrv) selDrv.value = '';
       });
     }
 
     const selCmd = shadow.getElementById('ext-sel-cmd-person');
     if (selCmd) {
-      selCmd.value = extState.cmdCustomId ? '' : extState.cmdPersonId;
-      selCmd.addEventListener('change', e => { extState.cmdPersonId = e.target.value; extState.cmdCustomId = ''; });
+      selCmd.value = extState.cmdPersonId || '';
+      selCmd.addEventListener('change', e => {
+        extState.cmdPersonId = e.target.value;
+        if (e.target.value !== NEW_ID_VAL) extState.cmdCustomId = '';
+        render();
+      });
     }
     const custCmd = shadow.getElementById('ext-custom-cmd-id');
     if (custCmd) {
@@ -1554,14 +1615,17 @@
         const c = e.target.value.replace(/\D/g, '').slice(0, 9);
         e.target.value = c;
         extState.cmdCustomId = c;
-        if (c && selCmd) selCmd.value = '';
       });
     }
 
     const selDisp = shadow.getElementById('ext-sel-disp-person');
     if (selDisp) {
-      selDisp.value = extState.dispCustomId ? '' : extState.dispPersonId;
-      selDisp.addEventListener('change', e => { extState.dispPersonId = e.target.value; extState.dispCustomId = ''; });
+      selDisp.value = extState.dispPersonId || '';
+      selDisp.addEventListener('change', e => {
+        extState.dispPersonId = e.target.value;
+        if (e.target.value !== NEW_ID_VAL) extState.dispCustomId = '';
+        render();
+      });
     }
     const custDisp = shadow.getElementById('ext-custom-disp-id');
     if (custDisp) {
@@ -1569,18 +1633,10 @@
         const c = e.target.value.replace(/\D/g, '').slice(0, 9);
         e.target.value = c;
         extState.dispCustomId = c;
-        if (c && selDisp) selDisp.value = '';
       });
     }
 
     shadow.getElementById('ext-run-step2').addEventListener('click', async () => {
-      if ((extState.driverChoice === 'me' || extState.cmdChoice === 'me') && appData.myId.length !== 9) {
-        showToast('יש להזין תחילה תעודת זהות קבועה (9 ספרות) למעלה');
-        extState.editingMyId = true;
-        render();
-        return;
-      }
-
       closeDrawer();
       await delay(100);
 
@@ -1599,12 +1655,12 @@
         const btn = findButtonByText(['בחירת נהג']);
         if (btn) robustClick(btn);
         await delay(220);
-        const drvId = extState.driverCustomId || extState.driverPersonId;
+        const drvId = extState.driverPersonId === NEW_ID_VAL ? extState.driverCustomId : extState.driverPersonId;
         const drvEl = findField('driverId');
         if (drvEl && drvId) {
           setNativeInputValue(drvEl, drvId);
-          if (extState.driverCustomId) {
-            tryLearnPersonNameNearInput(drvEl, drvId, 'נהג');
+          if (extState.driverPersonId === NEW_ID_VAL && drvId.length === 9) {
+            registerPersonIdForAutoName(drvId, 'driver', 'נהג');
             extState.driverPersonId = drvId;
             extState.driverCustomId = '';
           }
@@ -1621,25 +1677,25 @@
         const btn = findButtonByText(['בחירת מפקד משימה', 'בחירת מפקד']);
         if (btn) robustClick(btn);
         await delay(220);
-        const cmdId = extState.cmdCustomId || extState.cmdPersonId;
+        const cmdId = extState.cmdPersonId === NEW_ID_VAL ? extState.cmdCustomId : extState.cmdPersonId;
         const cmdEl = findField('cmdId');
         if (cmdEl && cmdId) {
           setNativeInputValue(cmdEl, cmdId);
-          if (extState.cmdCustomId) {
-            tryLearnPersonNameNearInput(cmdEl, cmdId, 'מפקד משימה');
+          if (extState.cmdPersonId === NEW_ID_VAL && cmdId.length === 9) {
+            registerPersonIdForAutoName(cmdId, 'cmd', 'מפקד משימה');
             extState.cmdPersonId = cmdId;
             extState.cmdCustomId = '';
           }
         }
       }
 
-      const dispId = extState.dispCustomId || extState.dispPersonId;
+      const dispId = extState.dispPersonId === NEW_ID_VAL ? extState.dispCustomId : extState.dispPersonId;
       if (dispId) {
         const dispEl = findField('dispId');
         if (dispEl) {
           setNativeInputValue(dispEl, dispId);
-          if (extState.dispCustomId) {
-            tryLearnPersonNameNearInput(dispEl, dispId, 'משלח');
+          if (extState.dispPersonId === NEW_ID_VAL && dispId.length === 9) {
+            registerPersonIdForAutoName(dispId, 'disp', 'מפקד משלח');
             extState.dispPersonId = dispId;
             extState.dispCustomId = '';
           }
@@ -1991,6 +2047,7 @@
       url.includes('auth') ||
       (txt.includes('מספר תעודת הזהות שלי') && txt.includes('התחברות') && !txt.includes('מילוי כרטיס עבודה'));
     fab.style.display = isLoginScreen ? 'none' : 'inline-flex';
+    scrapeOpenTicketNamesAndOdometer();
   }
 
   applyTheme();
