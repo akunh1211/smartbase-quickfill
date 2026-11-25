@@ -34,7 +34,7 @@ import java.nio.charset.StandardCharsets;
 public class MainActivity extends Activity {
 
     private static final String START_URL = "https://smartbase.digital.idf.il/#/home/requests";
-    private static final String OTA_SCRIPT_URL = "https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js";
+    private static final String OTA_SCRIPT_URL = "https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js";
     private static final String PREFS_NAME = "sb_quickfill_prefs";
     private static final String OTA_FILE_NAME = "quickfill_latest.js";
 
@@ -216,19 +216,59 @@ public class MainActivity extends Activity {
         }
     }
 
-    private String loadBestScript() {
-        File otaFile = new File(getFilesDir(), OTA_FILE_NAME);
-        if (otaFile.exists() && otaFile.length() > 1000) {
-            try (InputStream is = new FileInputStream(otaFile)) {
-                return readAllUtf8(is);
+    private int[] parseScriptVersion(String content) {
+        if (content == null) return new int[]{0, 0, 0};
+        String marker = "const SCRIPT_VERSION = '";
+        int idx = content.indexOf(marker);
+        if (idx == -1) return new int[]{0, 0, 0};
+        int start = idx + marker.length();
+        int end = content.indexOf("'", start);
+        if (end == -1 || end - start > 20) return new int[]{0, 0, 0};
+        String[] parts = content.substring(start, end).split("\\.");
+        int[] ver = new int[]{0, 0, 0};
+        for (int i = 0; i < Math.min(3, parts.length); i++) {
+            try {
+                ver[i] = Integer.parseInt(parts[i].replaceAll("[^0-9]", ""));
             } catch (Exception ignored) {
             }
         }
+        return ver;
+    }
+
+    private int compareVersions(int[] a, int[] b) {
+        for (int i = 0; i < 3; i++) {
+            if (a[i] != b[i]) return Integer.compare(a[i], b[i]);
+        }
+        return 0;
+    }
+
+    private String loadAssetScript() {
         try (InputStream is = getAssets().open("quickfill.js")) {
             return readAllUtf8(is);
         } catch (Exception ignored) {
             return "";
         }
+    }
+
+    private String loadBestScript() {
+        String assetScript = loadAssetScript();
+        int[] assetVer = parseScriptVersion(assetScript);
+
+        File otaFile = new File(getFilesDir(), OTA_FILE_NAME);
+        if (otaFile.exists() && otaFile.length() > 1000) {
+            try (InputStream is = new FileInputStream(otaFile)) {
+                String otaScript = readAllUtf8(is);
+                int[] otaVer = parseScriptVersion(otaScript);
+                if (compareVersions(otaVer, assetVer) >= 0) {
+                    return otaScript;
+                } else {
+                    // Bundled APK script is newer than cached OTA file — purge stale cache!
+                    otaFile.delete();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return assetScript;
     }
 
     private String readAllUtf8(InputStream is) throws Exception {
@@ -248,12 +288,17 @@ public class MainActivity extends Activity {
             try {
                 URL url = new URL(OTA_SCRIPT_URL + "?t=" + System.currentTimeMillis());
                 conn = (HttpURLConnection) url.openConnection();
+                conn.setUseCaches(false);
+                conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
+                conn.setRequestProperty("Pragma", "no-cache");
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(5000);
                 conn.setRequestMethod("GET");
                 if (conn.getResponseCode() == 200) {
                     String content = readAllUtf8(conn.getInputStream());
-                    if (content.contains("__SMARTBASE_QUICKFILL_LOADED__")) {
+                    int[] remoteVer = parseScriptVersion(content);
+                    int[] currentVer = parseScriptVersion(loadBestScript());
+                    if (content.contains("__SMARTBASE_QUICKFILL_LOADED__") && compareVersions(remoteVer, currentVer) >= 0) {
                         File tmp = new File(getFilesDir(), OTA_FILE_NAME + ".tmp");
                         try (FileOutputStream fos = new FileOutputStream(tmp)) {
                             fos.write(content.getBytes(StandardCharsets.UTF_8));

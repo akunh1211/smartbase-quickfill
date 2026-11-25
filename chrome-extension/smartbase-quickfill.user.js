@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      2.0.0
-// @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: אשף רציף של כל השלבים ומילוי אוטומטי מלא מהבית ועד החתימה.
+// @version      3.0.0
+// @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מנוע React Fiber ישיר לאשף רציף ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
-// @downloadURL  https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
-// @updateURL    https://akunh1211.github.io/smartbase-quickfill/smartbase-quickfill.user.js
+// @downloadURL  https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js
+// @updateURL    https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js
 // @match        https://smartbase.digital.idf.il/*
 // @match        *://*.smartbase.digital.idf.il/*
 // @match        *://*/*smartbase*
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '2.0.0';
+  const SCRIPT_VERSION = '3.0.0';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -256,8 +256,184 @@
   };
 
   // ---------------------------------------------------------------------------
-  // 3. Robust Angular / Material DOM Engine for smartbase.digital.idf.il
+  // 3. Direct React 18 Fiber Engine + DOM Fallback for smartbase.digital.idf.il
   // ---------------------------------------------------------------------------
+  function getReactFiber(el) {
+    if (!el || typeof el !== 'object') return null;
+    const keys = Object.keys(el);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')) {
+        return el[k];
+      }
+    }
+    return null;
+  }
+
+  function getReactProps(el) {
+    if (!el || typeof el !== 'object') return null;
+    const keys = Object.keys(el);
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i].startsWith('__reactProps$')) return el[keys[i]];
+    }
+    return null;
+  }
+
+  function getContextProviderValue(fiber) {
+    if (!fiber) return null;
+    // In idle React 18, fiber.type._context._currentValue resets to createContext(defaultValue) (e.g. {}),
+    // whereas fiber.memoizedProps.value ALWAYS holds the live committed Provider value!
+    if (fiber.memoizedProps && fiber.memoizedProps.value !== undefined) {
+      return fiber.memoizedProps.value;
+    }
+    if (fiber.pendingProps && fiber.pendingProps.value !== undefined) {
+      return fiber.pendingProps.value;
+    }
+    return null;
+  }
+
+  function getSeedElementsForFiberWalk() {
+    const seeds = [];
+    const pushIf = el => { if (el && !el.closest('#sb-qf-host') && !seeds.includes(el)) seeds.push(el); };
+    pushIf(document.getElementById('targetId'));
+    pushIf(document.getElementById('vehicle-num'));
+    pushIf(document.getElementById('continue'));
+    pushIf(document.querySelector('.main-stepper'));
+    const extras = document.querySelectorAll('#root input, #root button, #root p, body input, body button, body p');
+    for (let i = 0; i < extras.length && seeds.length < 18; i++) {
+      pushIf(extras[i]);
+    }
+    return seeds;
+  }
+
+  // Finds SmartBase's live Mission Context (Z.Provider in MissionSignature.js / CreateMission.js)
+  function findMissionContext() {
+    const seeds = getSeedElementsForFiberWalk();
+    for (let i = 0; i < seeds.length; i++) {
+      let f = getReactFiber(seeds[i]);
+      for (let depth = 0; f && depth < 65; depth++, f = f.return) {
+        const val = getContextProviderValue(f);
+        if (
+          val &&
+          typeof val === 'object' &&
+          typeof val.setStations === 'function' &&
+          typeof val.setTargetId === 'function' &&
+          typeof val.setFieldValidity === 'function'
+        ) {
+          return val;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Finds SmartBase's live Swipper Context (lL.Provider in MobileRouter.js: viewIndex 0/1/2 + passToNextView)
+  function findSwipperContext() {
+    const seeds = getSeedElementsForFiberWalk();
+    for (let i = 0; i < seeds.length; i++) {
+      let f = getReactFiber(seeds[i]);
+      for (let depth = 0; f && depth < 65; depth++, f = f.return) {
+        const val = getContextProviderValue(f);
+        if (
+          val &&
+          typeof val === 'object' &&
+          typeof val.passToNextView === 'function' &&
+          typeof val.viewIndex === 'number'
+        ) {
+          return val;
+        }
+      }
+    }
+    return null;
+  }
+
+  function normHeb(s) {
+    return String(s || '').replace(/['״"`]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  function resolveStationName(query, options) {
+    const q = String(query || '').trim();
+    if (!q || !Array.isArray(options) || options.length === 0) return q;
+    const nq = normHeb(q);
+    let m = options.find(o => o && normHeb(o.description) === nq);
+    if (m) return m.description;
+    m = options.find(o => o && normHeb(o.description).startsWith(nq));
+    if (m) return m.description;
+    m = options.find(o => o && normHeb(o.description).includes(nq));
+    if (m) return m.description;
+    m = options.find(o => o && normHeb(o.description).length >= 3 && nq.includes(normHeb(o.description)));
+    if (m) return m.description;
+    return q;
+  }
+
+  function upsertSavedPersonFullName(idVal, fullName, defaultRole) {
+    const cleanId = String(idVal || '').replace(/\D/g, '');
+    const cleanName = String(fullName || '').replace(/\s+/g, ' ').trim();
+    if (cleanId.length !== 9 || cleanName.length < 2 || !/[\u0590-\u05FF]/.test(cleanName)) return false;
+    if (cleanId === appData.myId) return false;
+
+    const existing = appData.people.find(p => p.id === cleanId);
+    if (existing) {
+      const isPlaceholder =
+        Boolean(existing.needsName) ||
+        existing.name === 'ממתין לשם' ||
+        /^(משלח|נהג|מפקד משימה)\s*\(\d{4}\)$/.test(String(existing.name || '').trim());
+      if (isPlaceholder && existing.name !== cleanName) {
+        existing.name = cleanName;
+        existing.needsName = false;
+        return cleanName;
+      }
+      return false;
+    }
+    appData.people.push({ name: cleanName, id: cleanId, role: defaultRole || 'צוות', needsName: false });
+    return cleanName;
+  }
+
+  function learnNamesFromSmartBaseState() {
+    let learned = [];
+    try {
+      const missionCtx = findMissionContext();
+      if (missionCtx && missionCtx.officials && typeof missionCtx.officials === 'object') {
+        const roleLabels = { 1: 'נהג', 2: 'מפקד משלח', 3: 'מפקד משימה', 4: 'מפקד לילה' };
+        for (const [factorId, off] of Object.entries(missionCtx.officials)) {
+          if (!off || !off.id) continue;
+          const full = `${off.firstName || ''} ${off.lastName || ''}`.replace(/\s+/g, ' ').trim();
+          const savedName = upsertSavedPersonFullName(off.id, full, roleLabels[factorId] || 'צוות');
+          if (savedName) learned.push(savedName);
+        }
+      }
+      const swipperCtx = findSwipperContext();
+      const hist = swipperCtx && swipperCtx.submissionHistory;
+      if (hist && typeof hist === 'object') {
+        const lists = [
+          [hist.driverHistory, 'נהג'],
+          [hist.missionCommanderHistory, 'מפקד משימה'],
+          [hist.expeditionCommanderHistory, 'מפקד משלח']
+        ];
+        for (const [arr, role] of lists) {
+          if (!Array.isArray(arr)) continue;
+          for (const item of arr) {
+            if (item && item.tz && item.displayName) {
+              const savedName = upsertSavedPersonFullName(item.tz, item.displayName, role);
+              if (savedName) learned.push(savedName);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    if (learned.length > 0) {
+      if (appData.pendingNameLookup) {
+        for (const k of Object.keys(appData.pendingNameLookup)) {
+          const p = appData.people.find(x => x.id === appData.pendingNameLookup[k]);
+          if (p && !p.needsName) delete appData.pendingNameLookup[k];
+        }
+      }
+      saveData();
+      showToast(`✓ שם מלא נשמר אוטומטית: ${learned.join(', ')}`);
+    }
+  }
+
   // Exact visibility check tuned for React MUI v5 (never rejects closed MuiAutocomplete/MuiSelect with aria-expanded="false"!)
   function isVisible(el) {
     if (!el || el.nodeType !== 1) return false;
@@ -725,9 +901,9 @@
       purpose: '#input-purpose',
       nextStep1Btn: '#btn-next-to-step2',
       plate: '#vehicle-num, #input-vehicle-plate',
-      driverId: '[id="id 0"], #input-driver-id',
-      cmdId: '[id="id 1"], #input-cmd-id',
-      dispId: '[id="id 2"], #input-disp-id',
+      driverId: 'input[name="id"][id="1"], [id="id 1"], #input-driver-id',
+      cmdId: 'input[name="id"][id="3"], [id="id 3"], #input-cmd-id',
+      dispId: 'input[name="id"][id="2"], [id="id 2"], #input-disp-id',
       nextStep2Btn: '#btn-next-to-step3',
       ackCheckbox: '#checkbox-ack-guidelines',
       odometer: '.MuiDialog-root input:not([type="hidden"]):not([type="checkbox"]), [role="dialog"] input:not([type="hidden"]):not([type="checkbox"]), #input-odometer'
@@ -846,6 +1022,19 @@
   async function ensureOnWorkTicketStep1() {
     if (detectCurrentPageStep() === 1) return true;
 
+    // 1. Direct Hash-Router jump on real SmartBase (#/home/requests -> #/new/drivingTask)
+    const isRealSmartBase =
+      location.hostname.includes('smartbase') ||
+      location.hash.startsWith('#/');
+    if (isRealSmartBase && !location.hash.includes('/new/drivingTask')) {
+      window.location.hash = '#/new/drivingTask';
+      const jumped = await waitForCondition(() => detectCurrentPageStep() === 1 || Boolean(findMissionContext()), 4500, 120);
+      if (jumped) {
+        await delay(250);
+        return true;
+      }
+    }
+
     const findTicketRow = () => {
       const exactNodes = Array.from(document.querySelectorAll('*'))
         .filter(el => isVisible(el) && el.children.length <= 2 && el.textContent.trim() === 'מילוי כרטיס עבודה');
@@ -854,7 +1043,7 @@
       return exactNodes[0];
     };
 
-    // 1. Check if the "פתיחת פעולה חדשה" sheet is already open
+    // 2. Fallback: "+ פעולה חדשה" -> "מילוי כרטיס עבודה" bottom sheet
     let ticketTextNode = findTicketRow();
     if (!ticketTextNode) {
       const newActionBtn = findButtonByText(['פעולה חדשה', '+ פעולה חדשה']);
@@ -865,7 +1054,6 @@
         if (exact) robustClick(exact);
       }
       ticketTextNode = await waitForCondition(findTicketRow, 2800, 140);
-      // Let the bottom-sheet slide-up animation settle completely before clicking!
       if (ticketTextNode) await delay(420);
     }
 
@@ -873,7 +1061,6 @@
       const rowEl = ticketTextNode.closest('button, a, li, mat-list-item, ion-item, [role="button"], [role="listitem"]') ||
         (ticketTextNode.parentElement && ticketTextNode.parentElement.getBoundingClientRect().height < 110 ? ticketTextNode.parentElement : null);
 
-      // Click once cleanly and wait up to 7 seconds for SmartBase network load to reach Step 1!
       robustClick(rowEl || ticketTextNode);
       let arrived = await waitForCondition(() => detectCurrentPageStep() === 1, 3200, 150);
       if (!arrived && rowEl) {
@@ -881,17 +1068,25 @@
         arrived = await waitForCondition(() => detectCurrentPageStep() === 1, 4500, 150);
       }
       if (arrived) {
-        await delay(350);
+        await delay(300);
         return true;
       }
     }
     return detectCurrentPageStep() === 1;
   }
 
-  // Strictly checks ON-SCREEN visible headings in natural order (1 -> 2 -> 3, with modal priority)
+  // Checks React Swipper's live viewIndex (0 -> 1, 1 -> 2, 2 -> 3) first, then visible headings
   function detectCurrentPageStep() {
-    try { window.scrollTo(0, 0); } catch (_) {}
     if (hasVisibleText('חתימה דיגיטלית')) return 3;
+    const missionCtx = findMissionContext();
+    const swipperCtx = findSwipperContext();
+    if (missionCtx && swipperCtx && typeof swipperCtx.viewIndex === 'number') {
+      if (swipperCtx.viewIndex >= 0 && swipperCtx.viewIndex <= 2) {
+        return swipperCtx.viewIndex + 1;
+      }
+    }
+    if (location.hash && location.hash.startsWith('#/sign')) return 3;
+    try { window.scrollTo(0, 0); } catch (_) {}
     if (hasVisibleText('תכנון הנסיעה') || hasVisibleText('לאן נוסעים?')) return 1;
     if (hasVisibleText('שיבוץ רכב וצוות') || hasVisibleText('בחירת מפקד משלח')) return 2;
     if (hasVisibleText('אישור וחתימה') || hasVisibleText('קראתי והבנתי את ההנחיות')) return 3;
@@ -1400,7 +1595,7 @@
           <div class="sheet-title-wrap">
             <span style="font-size:20px;">⚡</span>
             <div>
-              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v2.0</span></h2>
+              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v3.0</span></h2>
               <p id="qf-subtitle" class="sheet-sub">שלב 1 • תכנון נסיעה ומסלולים</p>
             </div>
           </div>
@@ -1508,7 +1703,143 @@
     const cleanStop = extState.quickStop.trim();
     const cleanDest = extState.quickDest.trim();
 
-    const routeCard = findCardContainer('לאן נוסעים');
+    // -------------------------------------------------------------------------
+    // A. Direct React 18 Fiber Engine for Real SmartBase (CreateMission.js)
+    // -------------------------------------------------------------------------
+    if (findMissionContext()) {
+      // 1. Wait up to 4s for GET /workcard/suggestedStation options to load on Station Autocomplete
+      const stationOptions = await waitForCondition(() => {
+        const inputs = document.querySelectorAll('.main-stepper input, input[type="text"]:not([readonly]):not(.MuiSelect-nativeInput)');
+        for (let i = 0; i < inputs.length; i++) {
+          let f = getReactFiber(inputs[i]);
+          for (let d = 0; f && d < 35; d++, f = f.return) {
+            const mp = f.memoizedProps;
+            if (mp && Array.isArray(mp.options) && typeof mp.getOptionLabel === 'function' && mp.options.length > 0) {
+              return mp.options;
+            }
+          }
+        }
+        return null;
+      }, 4000, 120);
+
+      const resOrigin = resolveStationName(cleanOrigin, stationOptions);
+      const resStop = cleanStop ? resolveStationName(cleanStop, stationOptions) : '';
+      const resDest = resolveStationName(cleanDest, stationOptions);
+      const desiredStations = resStop ? [resOrigin, resStop, resDest] : [resOrigin, resDest];
+
+      const ctx1 = findMissionContext();
+      if (ctx1) {
+        ctx1.setStations(desiredStations);
+        const validCount = desiredStations.filter(s => String(s || '').trim() !== '').length >= 2;
+        ctx1.setFieldValidity(prev => ({
+          ...prev,
+          missionRideDetails: {
+            ...(prev && prev.missionRideDetails),
+            stations: { isValid: validCount, error: validCount ? '' : 'יש לבחור לפחות שני מקומות' }
+          }
+        }));
+      }
+      await delay(180);
+
+      // 2. Select Mission Purpose via #targetId's MUI <Select> onChange + MenuItem values
+      if (extState.quickPurpose) {
+        const selectInfo = await waitForCondition(() => {
+          const el = document.getElementById('targetId') || document.querySelector('.MuiSelect-select');
+          if (!el) return null;
+          let f = getReactFiber(el);
+          for (let d = 0; f && d < 32; d++, f = f.return) {
+            const mp = f.memoizedProps;
+            if (
+              mp &&
+              typeof mp.onChange === 'function' &&
+              Array.isArray(mp.children) &&
+              mp.children.length > 0 &&
+              mp.children.some(c => c && c.props && c.props.value !== undefined)
+            ) {
+              return { el, onChange: mp.onChange, items: mp.children };
+            }
+          }
+          return null;
+        }, 4000, 120);
+
+        if (selectInfo) {
+          const want = normHeb(extState.quickPurpose);
+          let matchedItem = selectInfo.items.find(it => it && it.props && normHeb(it.props.children) === want);
+          if (!matchedItem) {
+            matchedItem = selectInfo.items.find(it => it && it.props && normHeb(it.props.children).includes(want));
+          }
+          if (matchedItem && matchedItem.props && matchedItem.props.value !== undefined) {
+            selectInfo.onChange({ target: { value: matchedItem.props.value } });
+            highlightPageEl(selectInfo.el);
+            await delay(180);
+          }
+        } else {
+          await selectPurposeOnStep1(extState.quickPurpose);
+        }
+      }
+
+      // 3. Select Trip Type ("נסיעה מנהלתית" / "נסיעה מבצעית") if target requires it
+      const tripBtns = Array.from(document.querySelectorAll('button'))
+        .filter(b => !b.closest('#sb-qf-host') && b.textContent.trim() === extState.quickTripType);
+      if (tripBtns.length > 0) {
+        const tripBtn = tripBtns[0];
+        const rp = getReactProps(tripBtn);
+        if (rp && typeof rp.onClick === 'function') {
+          rp.onClick({ preventDefault() {}, stopPropagation() {} });
+        } else {
+          robustClick(tripBtn);
+        }
+        const desiredEnum = extState.quickTripType === 'נסיעה מבצעית' ? 'OPERATIONAL' : 'ADMINISTRATIVE';
+        const ctxNow = findMissionContext();
+        if (ctxNow && typeof ctxNow.setMissionType === 'function') {
+          ctxNow.setMissionType(desiredEnum);
+        }
+        highlightPageEl(tripBtn);
+        await delay(160);
+      }
+
+      // 4. Wait for Step 1 ride validity & advance to Step 2
+      const ready1 = await waitForCondition(() => {
+        const ctx = findMissionContext();
+        const rideDetails = ctx && ctx.fieldValidity && ctx.fieldValidity.missionRideDetails;
+        const rideValid = rideDetails && Object.values(rideDetails).every(v => v && v.isValid);
+        const contBtns = Array.from(document.querySelectorAll('button#continue, button[id="continue"], button[aria-label="continue"]'))
+          .filter(b => !b.closest('#sb-qf-host'));
+        const step1Btn = contBtns[0] || null;
+        if (step1Btn && !step1Btn.disabled) return { btn: step1Btn, rideValid: true };
+        if (rideValid) return { btn: step1Btn, rideValid: true };
+        return null;
+      }, 3800, 120);
+
+      if (!ready1) return false;
+
+      if (ready1.btn && !ready1.btn.disabled) {
+        const rp = getReactProps(ready1.btn);
+        if (rp && typeof rp.onClick === 'function') {
+          rp.onClick({ preventDefault() {}, stopPropagation() {} });
+        } else {
+          robustClick(ready1.btn);
+        }
+      } else {
+        const sw = findSwipperContext();
+        if (sw && typeof sw.passToNextView === 'function') sw.passToNextView();
+      }
+
+      let arrived2 = await waitForCondition(() => detectCurrentPageStep() === 2, 2500, 120);
+      if (!arrived2) {
+        const sw = findSwipperContext();
+        if (sw && typeof sw.passToNextView === 'function' && sw.viewIndex === 0) {
+          sw.passToNextView();
+          arrived2 = await waitForCondition(() => detectCurrentPageStep() === 2, 2200, 120);
+        }
+      }
+      await delay(260);
+      return Boolean(arrived2);
+    }
+
+    // -------------------------------------------------------------------------
+    // B. DOM Fallback (for smartbase.html local demo)
+    // -------------------------------------------------------------------------
     const originEl = findField('origin');
     if (originEl && cleanOrigin) {
       await fillSmartDropdownOrInput(originEl, cleanOrigin);
@@ -1545,13 +1876,192 @@
     return Boolean(arrivedStep2);
   }
 
+  async function triggerReactButtonByExactText(labels) {
+    const list = Array.isArray(labels) ? labels : [labels];
+    const allBtns = Array.from(document.querySelectorAll('button')).filter(b => !b.closest('#sb-qf-host'));
+    for (const txt of list) {
+      const btn = allBtns.find(b => isVisible(b) && b.textContent.trim() === txt) ||
+                  allBtns.find(b => b.textContent.trim() === txt);
+      if (btn) {
+        const rp = getReactProps(btn);
+        if (rp && typeof rp.onClick === 'function') {
+          rp.onClick({ preventDefault() {}, stopPropagation() {} });
+        } else {
+          robustClick(btn);
+        }
+        highlightPageEl(btn);
+        return btn;
+      }
+    }
+    return null;
+  }
+
+  async function fillOfficialIdByFactorType(factorTypeId, rawId) {
+    const cleanId = String(rawId || '').replace(/\D/g, '').slice(0, 9);
+    if (!cleanId) return false;
+
+    const idInput = await waitForCondition(() => {
+      return (
+        document.querySelector(`input[name="id"][id="${factorTypeId}"]`) ||
+        document.querySelector(`input[id="${factorTypeId}"]:not([name="phone"])`) ||
+        document.querySelector(`[id="id ${factorTypeId}"]`)
+      );
+    }, 1800, 100);
+
+    if (!idInput) return false;
+
+    let f = getReactFiber(idInput);
+    for (let d = 0; f && d < 32; d++, f = f.return) {
+      const mp = f.memoizedProps;
+      if (mp && typeof mp.onInputChange === 'function') {
+        await mp.onInputChange(null, cleanId, 'input');
+        highlightPageEl(idInput);
+        return true;
+      }
+    }
+
+    setNativeInputValue(idInput, cleanId);
+    idInput.dispatchEvent(new Event('blur', { bubbles: true }));
+    return true;
+  }
+
   async function executeStep2OnPage() {
     const NEW_ID_VAL = '__NEW__';
 
+    // -------------------------------------------------------------------------
+    // A. Direct React 18 Fiber Engine for Real SmartBase (Step 2: ac, uc, oc, dc)
+    //    FACTOR_TYPE_IDS: DRIVER = 1, MESHALEAH_COMMANDER = 2, MISSION_COMMANDER = 3
+    // -------------------------------------------------------------------------
+    if (findMissionContext()) {
+      // 1. Vehicle Plate (#vehicle-num — starts 500ms server availability check immediately)
+      if (extState.selectedVehiclePlate) {
+        const cleanPlate = String(extState.selectedVehiclePlate).replace(/\D/g, '') || String(extState.selectedVehiclePlate).trim();
+        const vehInput = document.getElementById('vehicle-num');
+        let vehTriggered = false;
+        if (vehInput) {
+          let f = getReactFiber(vehInput);
+          for (let d = 0; f && d < 32; d++, f = f.return) {
+            const mp = f.memoizedProps;
+            if (mp && typeof mp.onInputChange === 'function') {
+              mp.onInputChange(null, cleanPlate, 'input');
+              vehTriggered = true;
+              break;
+            }
+          }
+          highlightPageEl(vehInput);
+        }
+        if (!vehTriggered) {
+          const ctx = findMissionContext();
+          if (ctx && typeof ctx.setPlateNumber === 'function') ctx.setPlateNumber(cleanPlate);
+        }
+        await delay(140);
+      }
+
+      // 2. Driver (FACTOR_TYPE_IDS.DRIVER = 1)
+      if (extState.driverChoice === 'me') {
+        await triggerReactButtonByExactText(['אני נהג']);
+        await delay(180);
+      } else {
+        await triggerReactButtonByExactText(['בחירת נהג']);
+        await delay(220);
+        const drvId = extState.driverPersonId === NEW_ID_VAL ? extState.driverCustomId : extState.driverPersonId;
+        if (drvId) {
+          await fillOfficialIdByFactorType(1, drvId);
+          if (extState.driverPersonId === NEW_ID_VAL && drvId.length === 9) {
+            registerPersonIdForAutoName(drvId, 'driver', 'נהג');
+            extState.driverPersonId = drvId;
+            extState.driverCustomId = '';
+          }
+        }
+      }
+
+      // 3. Mission Commander (FACTOR_TYPE_IDS.MISSION_COMMANDER = 3)
+      if (extState.cmdChoice === 'me') {
+        await triggerReactButtonByExactText(['אני מפקד משימה', 'אני מפקד']);
+        await delay(180);
+      } else {
+        await triggerReactButtonByExactText(['בחירת מפקד משימה', 'בחירת מפקד']);
+        await delay(220);
+        const cmdId = extState.cmdPersonId === NEW_ID_VAL ? extState.cmdCustomId : extState.cmdPersonId;
+        if (cmdId) {
+          await fillOfficialIdByFactorType(3, cmdId);
+          if (extState.cmdPersonId === NEW_ID_VAL && cmdId.length === 9) {
+            registerPersonIdForAutoName(cmdId, 'cmd', 'מפקד משימה');
+            extState.cmdPersonId = cmdId;
+            extState.cmdCustomId = '';
+          }
+        }
+      }
+
+      // 4. Dispatcher / Meshaleah Commander (FACTOR_TYPE_IDS.MESHALEAH_COMMANDER = 2)
+      //    Note: Privileged users (Keva/AAZ/Vehicle Officer) also get "אני מפקד משלח" / "בחירת מפקד משלח" toggle buttons!
+      const dispId = extState.dispPersonId === NEW_ID_VAL ? extState.dispCustomId : extState.dispPersonId;
+      const hasSelfMeshaleahBtn = Array.from(document.querySelectorAll('button'))
+        .some(b => !b.closest('#sb-qf-host') && b.textContent.trim() === 'אני מפקד משלח');
+
+      if (hasSelfMeshaleahBtn && dispId && appData.myId && dispId === appData.myId) {
+        await triggerReactButtonByExactText(['אני מפקד משלח']);
+        await delay(180);
+      } else {
+        if (hasSelfMeshaleahBtn) {
+          await triggerReactButtonByExactText(['בחירת מפקד משלח']);
+          await delay(220);
+        }
+        if (dispId) {
+          await fillOfficialIdByFactorType(2, dispId);
+          if (extState.dispPersonId === NEW_ID_VAL && dispId.length === 9) {
+            registerPersonIdForAutoName(dispId, 'disp', 'מפקד משלח');
+            extState.dispPersonId = dispId;
+            extState.dispCustomId = '';
+          }
+        }
+      }
+
+      // 5. Poll up to 8s for IDF server to validate plate + officials (isLoaded:true) & enable Step 2 #continue
+      const step2NextBtn = await waitForCondition(() => {
+        learnNamesFromSmartBaseState();
+        const contBtns = Array.from(document.querySelectorAll('button#continue, button[id="continue"], button[aria-label="continue"]'))
+          .filter(b => !b.closest('#sb-qf-host'));
+        const activeBtn = contBtns.find(b => isVisible(b) && !b.disabled) || (contBtns[1] && !contBtns[1].disabled ? contBtns[1] : null);
+        return activeBtn || null;
+      }, 8000, 160);
+
+      learnNamesFromSmartBaseState();
+      if (!step2NextBtn) return false;
+
+      const rp = getReactProps(step2NextBtn);
+      if (rp && typeof rp.onClick === 'function') {
+        rp.onClick({ preventDefault() {}, stopPropagation() {} });
+      } else {
+        robustClick(step2NextBtn);
+      }
+
+      let arrived3 = await waitForCondition(() => {
+        const txt = document.body ? document.body.innerText : '';
+        return detectCurrentPageStep() === 3 || txt.includes('שמרנו את המשימה שלך');
+      }, 3000, 140);
+
+      if (!arrived3) {
+        const sw = findSwipperContext();
+        if (sw && typeof sw.passToNextView === 'function' && sw.viewIndex === 1) {
+          sw.passToNextView();
+          arrived3 = await waitForCondition(() => {
+            const txt = document.body ? document.body.innerText : '';
+            return detectCurrentPageStep() === 3 || txt.includes('שמרנו את המשימה שלך');
+          }, 3000, 140);
+        }
+      }
+
+      await delay(280);
+      return Boolean(arrived3);
+    }
+
+    // -------------------------------------------------------------------------
+    // B. DOM Fallback (for smartbase.html local demo)
+    // -------------------------------------------------------------------------
     if (extState.selectedVehiclePlate) {
       const plateEl = findField('plate');
       if (plateEl) {
-        // #vehicle-num in SmartBase is a React MUI Autocomplete — type plate AND select the matching option!
         await fillSmartDropdownOrInput(plateEl, extState.selectedVehiclePlate);
         await waitForOverlayToClose();
       }
@@ -1615,7 +2125,6 @@
       }
     }
 
-    // Poll up to 5.5s for SmartBase server to resolve dispatcher's auto-phone & enable "המשך"
     const clickedNext = await clickEnabledNextButton('nextStep2Btn', 5500);
     if (!clickedNext) return false;
 
@@ -1628,19 +2137,92 @@
   }
 
   async function executeStep3OnPage() {
+    await delay(200);
     const bodyNow = document.body ? document.body.innerText : '';
     if (bodyNow.includes('שמרנו את המשימה שלך')) {
       showToast('✓ הכרטיס נשמר בעמוד "עדכונים" (ממתין לחתימת הנהג)');
       return true;
     }
 
-    const cleanOdo = extState.quickOdometer.replace(/\D/g, '');
+    const cleanOdo = extState.quickOdometer.replace(/\D/g, '').slice(0, 6);
     if (cleanOdo && extState.selectedVehiclePlate) {
       appData.lastOdometers[extState.selectedVehiclePlate] = cleanOdo;
       saveData();
     }
 
-    // 1. Scroll down & check MUI Checkbox "קראתי והבנתי את ההנחיות." ONCE
+    // -------------------------------------------------------------------------
+    // A. Direct React 18 Fiber Engine for Real SmartBase (Step 3: Ze & Le)
+    // -------------------------------------------------------------------------
+    const missionCtx = findMissionContext();
+    if (missionCtx) {
+      if (cleanOdo && typeof missionCtx.setCurrKilometrage === 'function') {
+        missionCtx.setCurrKilometrage(cleanOdo);
+        await delay(120);
+      }
+
+      // In MissionSignature.js (Ze):
+      // - If !requiresBriefingType: <p onClick={m}>קראתי והבנתי את ההנחיות.</p> checks the box AND sets open=true!
+      // - If requiresBriefingType: button#continue ("המשך") has onClick={h} which sets open=true!
+      const ackPara = Array.from(document.querySelectorAll('p, span, label'))
+        .find(el => !el.closest('#sb-qf-host') && el.children.length === 0 && el.textContent.trim().includes('קראתי והבנתי את ההנחיות'));
+
+      if (ackPara) {
+        const rp = getReactProps(ackPara);
+        if (rp && typeof rp.onClick === 'function') {
+          rp.onClick({ preventDefault() {}, stopPropagation() {} });
+        } else {
+          robustClick(ackPara);
+        }
+      } else {
+        const contBtns = Array.from(document.querySelectorAll('button#continue, button[id="continue"], button[aria-label="continue"]'))
+          .filter(b => !b.closest('#sb-qf-host'));
+        const step3Btn = contBtns.find(b => isVisible(b) && !b.disabled) || contBtns[contBtns.length - 1];
+        if (step3Btn && !step3Btn.disabled) {
+          const rp = getReactProps(step3Btn);
+          if (rp && typeof rp.onClick === 'function') {
+            rp.onClick({ preventDefault() {}, stopPropagation() {} });
+          } else {
+            robustClick(step3Btn);
+          }
+        }
+      }
+
+      const dialogState = await waitForCondition(() => {
+        const txt = document.body ? document.body.innerText : '';
+        if (txt.includes('חתימה דיגיטלית')) return 'DIALOG';
+        if (txt.includes('שמרנו את המשימה שלך')) return 'SAVED';
+        return null;
+      }, 2800, 140);
+
+      if (dialogState === 'SAVED') {
+        showToast('✓ הכרטיס נשמר בעמוד "עדכונים" (ממתין לחתימת הנהג)');
+        return true;
+      }
+
+      if (cleanOdo) {
+        await delay(150);
+        const ctxAfter = findMissionContext();
+        if (ctxAfter && typeof ctxAfter.setCurrKilometrage === 'function') {
+          ctxAfter.setCurrKilometrage(cleanOdo);
+        }
+        const odoInput = findField('odometer');
+        if (odoInput && String(odoInput.value || '') !== cleanOdo) {
+          const rp = getReactProps(odoInput);
+          if (rp && typeof rp.onChange === 'function') {
+            rp.onChange({ target: { value: cleanOdo } });
+          } else {
+            setNativeInputValue(odoInput, cleanOdo);
+          }
+        }
+      }
+
+      showToast('✓ הכל מולא! חתום עם האצבע ושמור');
+      return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // B. DOM Fallback (for smartbase.html local demo)
+    // -------------------------------------------------------------------------
     const ackEl = findField('ackCheckbox');
     if (ackEl) {
       const clickTarget = ackEl.closest('label, .MuiFormControlLabel-root, .MuiCheckbox-root') || ackEl;
@@ -1657,14 +2239,12 @@
       }
     }
 
-    // 2. Wait up to 1.4s to see if checking the box automatically opens the "חתימה דיגיטלית" modal
     let odoEl = await waitForCondition(() => {
       const txt = document.body ? document.body.innerText : '';
       if (txt.includes('חתימה דיגיטלית')) return findField('odometer') || true;
       return null;
     }, 1400, 150);
 
-    // 3. If modal didn't auto-open on checkbox check, click a visible signature/continue button on Step 3
     if (!odoEl) {
       const openSignBtn = findButtonByText(['פתח חתימה', 'חתימה דיגיטלית', 'חתימה', 'אישור וחתימה', 'המשך']);
       if (openSignBtn && !openSignBtn.disabled) {
@@ -1683,7 +2263,6 @@
       return true;
     }
 
-    // 4. Fill odometer inside the "חתימה דיגיטלית" modal!
     if (cleanOdo) {
       await delay(150);
       const targetOdo = (odoEl && odoEl !== true) ? odoEl : findField('odometer');
@@ -2335,6 +2914,7 @@
       url.includes('auth') ||
       (txt.includes('מספר תעודת הזהות שלי') && txt.includes('התחברות') && !txt.includes('מילוי כרטיס עבודה'));
     fab.style.display = isLoginScreen ? 'none' : 'inline-flex';
+    learnNamesFromSmartBaseState();
     scrapeOpenTicketNamesAndOdometer();
   }
 
