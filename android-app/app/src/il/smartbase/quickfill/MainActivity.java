@@ -9,6 +9,7 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Message;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.CookieManager;
@@ -37,7 +38,9 @@ public class MainActivity extends Activity {
     private static final String PREFS_NAME = "sb_quickfill_prefs";
     private static final String OTA_FILE_NAME = "quickfill_latest.js";
 
+    private FrameLayout root;
     private WebView webView;
+    private WebView popupWebView;
 
     public class AndroidStorageBridge {
         private final Context context;
@@ -76,7 +79,7 @@ public class MainActivity extends Activity {
             win.setStatusBarColor(0xFF4F46E5);
         }
 
-        FrameLayout root = new FrameLayout(this);
+        root = new FrameLayout(this);
         root.setFitsSystemWindows(true);
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -103,9 +106,11 @@ public class MainActivity extends Activity {
         settings.setDatabaseEnabled(true);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setSupportMultipleWindows(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
 
-        // Remove "; wv" token so SmartBase renders identically to Chrome Android
+        // Remove "; wv" token so SmartBase & OAuth login treat WebView identically to Chrome Android
         String ua = settings.getUserAgentString();
         if (ua != null) {
             settings.setUserAgentString(ua.replace("; wv", ""));
@@ -116,7 +121,48 @@ public class MainActivity extends Activity {
         cm.setAcceptThirdPartyCookies(webView, true);
 
         webView.addJavascriptInterface(new AndroidStorageBridge(this), "AndroidStorage");
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+                // Real in-app popup WebView so OAuth/SSO popups keep window.opener and cookies intact
+                if (popupWebView != null) {
+                    root.removeView(popupWebView);
+                    popupWebView.destroy();
+                }
+                popupWebView = new WebView(MainActivity.this);
+                popupWebView.setLayoutParams(new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                ));
+                WebSettings ps = popupWebView.getSettings();
+                ps.setJavaScriptEnabled(true);
+                ps.setDomStorageEnabled(true);
+                ps.setJavaScriptCanOpenWindowsAutomatically(true);
+                ps.setUserAgentString(settings.getUserAgentString());
+                CookieManager.getInstance().setAcceptThirdPartyCookies(popupWebView, true);
+
+                popupWebView.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req) {
+                        Uri u = req.getUrl();
+                        String s = u.getScheme() != null ? u.getScheme().toLowerCase() : "";
+                        return !("http".equals(s) || "https".equals(s));
+                    }
+                });
+                popupWebView.setWebChromeClient(new WebChromeClient() {
+                    @Override
+                    public void onCloseWindow(WebView window) {
+                        closePopupWebView();
+                    }
+                });
+
+                root.addView(popupWebView);
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(popupWebView);
+                resultMsg.sendToTarget();
+                return true;
+            }
+        });
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -125,9 +171,18 @@ public class MainActivity extends Activity {
                 String scheme = uri.getScheme() != null ? uri.getScheme().toLowerCase() : "";
                 String host = uri.getHost() != null ? uri.getHost().toLowerCase() : "";
 
-                if (("http".equals(scheme) || "https".equals(scheme)) && host.endsWith("idf.il")) {
+                // Keep ALL http/https pages (including IDF SSO / Azure / B2C / gov.il login redirects) inside WebView!
+                if ("http".equals(scheme) || "https".equals(scheme)) {
+                    if ("wa.me".equals(host) || host.endsWith("whatsapp.com")) {
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                            return true;
+                        } catch (Exception ignored) {
+                        }
+                    }
                     return false;
                 }
+                // Non-http schemes (tel:, mailto:, whatsapp:, intent:, etc.)
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception ignored) {
@@ -228,9 +283,23 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().flush();
     }
 
+    private void closePopupWebView() {
+        if (popupWebView != null) {
+            root.removeView(popupWebView);
+            popupWebView.destroy();
+            popupWebView = null;
+        }
+    }
+
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
+        if (popupWebView != null) {
+            if (popupWebView.canGoBack()) {
+                popupWebView.goBack();
+            } else {
+                closePopupWebView();
+            }
+        } else if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
             super.onBackPressed();

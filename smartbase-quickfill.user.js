@@ -1606,8 +1606,22 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 7. Wire Events
+  // 7. Wire Events & Auto-Hide on Login Screen
   // ---------------------------------------------------------------------------
+  function syncFabVisibility() {
+    const url = (window.location.href || '').toLowerCase();
+    const txt = document.body ? document.body.innerText : '';
+    const isLoginScreen =
+      url.includes('login') ||
+      url.includes('auth') ||
+      (txt.includes('מספר תעודת הזהות שלי') && txt.includes('התחברות') && !txt.includes('מילוי כרטיס עבודה'));
+    fab.style.display = isLoginScreen ? 'none' : 'inline-flex';
+  }
+
+  syncFabVisibility();
+  window.addEventListener('hashchange', () => setTimeout(syncFabVisibility, 250));
+  setInterval(syncFabVisibility, 1200);
+
   fab.addEventListener('click', () => openDrawer(true));
   closeBtn.addEventListener('click', closeDrawer);
   drawer.addEventListener('click', e => { if (e.target === drawer) closeDrawer(); });
