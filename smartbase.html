@@ -1,0 +1,1730 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>הדגמה אינטראקטיבית - תוסף מילוי מהיר SmartBase</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #6e64e8 0%, #867bf0 55%, #665ce0 100%);
+      color: #1e293b;
+      overflow-x: hidden;
+    }
+
+    @keyframes fillFlash {
+      0% {
+        background-color: #bbf7d0;
+        box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.28);
+      }
+      100% {
+        background-color: transparent;
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+      }
+    }
+
+    .fill-flash {
+      animation: fillFlash 1.15s ease-out;
+    }
+
+    .quickfill-fab {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      z-index: 60;
+      background: linear-gradient(135deg, #5b4ce6 0%, #4637cc 100%);
+      color: #ffffff;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      border-radius: 9999px;
+      padding: 12px 18px;
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 12px 28px rgba(42, 31, 130, 0.42);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .quickfill-fab:hover {
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: 0 16px 32px rgba(42, 31, 130, 0.5);
+    }
+
+    .quickfill-fab:active {
+      transform: scale(0.97);
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.35);
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="p-3 sm:p-6 flex flex-col items-center justify-start">
+
+  <div class="w-full max-w-xl mb-3 bg-white/95 backdrop-blur rounded-2xl px-3.5 py-2.5 shadow-lg border border-white/60 flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-2">
+      <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+      <span class="text-xs sm:text-sm font-bold text-slate-800">סימולציית SmartBase + תוסף מילוי מהיר</span>
+    </div>
+
+    <div class="flex items-center gap-1.5" role="tablist" aria-label="מעבר בין שלבי כרטיס העבודה">
+      <button id="nav-step-1" type="button" class="px-3 py-1.5 rounded-xl text-xs font-bold transition bg-[#5b4ce6] text-white shadow-sm">
+        שלב 1: נסיעה
+      </button>
+      <button id="nav-step-2" type="button" class="px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 text-slate-700 hover:bg-slate-200">
+        שלב 2: רכב וצוות
+      </button>
+      <button id="nav-step-3" type="button" class="px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 text-slate-700 hover:bg-slate-200">
+        שלב 3: חתימה וק"מ
+      </button>
+    </div>
+  </div>
+
+  <main class="w-full max-w-xl bg-white rounded-3xl shadow-2xl border border-white/70 overflow-hidden mb-24">
+    <header class="px-5 pt-4 pb-3 border-b border-slate-100 bg-white">
+      <div class="flex items-center justify-between">
+        <button id="btn-top-back" type="button" class="w-9 h-9 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-600 transition" title="חזרה">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
+        </button>
+        <h1 class="text-lg font-extrabold text-slate-900">מילוי כרטיס עבודה</h1>
+        <button id="btn-reset-demo" type="button" class="text-xs font-semibold text-slate-500 hover:text-slate-800 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 transition">
+          איפוס טופס
+        </button>
+      </div>
+
+      <div class="mt-4 px-4 flex items-center justify-between relative">
+        <div class="absolute top-3.5 right-10 left-10 h-0.5 bg-slate-200 -z-0"></div>
+
+        <button id="stepper-1" type="button" class="relative z-10 flex flex-col items-center gap-1 group">
+          <span id="stepper-circle-1" class="w-7 h-7 rounded-full bg-[#5b4ce6] text-white text-xs font-bold flex items-center justify-center shadow">1</span>
+          <span class="text-[11px] font-semibold text-slate-600 group-hover:text-[#5b4ce6]">תכנון</span>
+        </button>
+
+        <button id="stepper-2" type="button" class="relative z-10 flex flex-col items-center gap-1 group">
+          <span id="stepper-circle-2" class="w-7 h-7 rounded-full bg-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center">2</span>
+          <span class="text-[11px] font-semibold text-slate-600 group-hover:text-[#5b4ce6]">רכב וצוות</span>
+        </button>
+
+        <button id="stepper-3" type="button" class="relative z-10 flex flex-col items-center gap-1 group">
+          <span id="stepper-circle-3" class="w-7 h-7 rounded-full bg-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center">3</span>
+          <span class="text-[11px] font-semibold text-slate-600 group-hover:text-[#5b4ce6]">חתימה</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- שלב 1 -->
+    <section id="step-1-container" class="p-4 sm:p-5 bg-slate-50/80 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-extrabold text-slate-900">תכנון הנסיעה</h2>
+        <span class="text-xs font-medium text-slate-500">שלב 1 מתוך 3</span>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+        <h3 class="text-sm font-bold text-slate-900">לאן נוסעים?</h3>
+
+        <div class="flex items-center gap-3">
+          <span class="w-7 h-7 rounded-full bg-indigo-50 text-[#5b4ce6] flex items-center justify-center shrink-0 font-bold text-xs">◎</span>
+          <div class="flex-1">
+            <label for="input-origin" class="block text-[11px] font-semibold text-slate-400">מוצא</label>
+            <input id="input-origin" type="text" placeholder="הזן או בחר בסיס מוצא..." class="w-full bg-transparent border-b border-slate-300 focus:border-[#5b4ce6] py-1.5 text-sm font-medium text-slate-800 outline-none rounded-md px-1 transition" />
+          </div>
+        </div>
+
+        <div>
+          <button id="btn-toggle-stop" type="button" class="inline-flex items-center gap-2 text-xs font-bold text-[#5b4ce6] hover:text-[#4637cc] py-1 px-1.5 rounded-lg hover:bg-indigo-50 transition">
+            <span class="w-5 h-5 rounded-full bg-[#5b4ce6] text-white inline-flex items-center justify-center text-sm leading-none">+</span>
+            <span id="label-toggle-stop">הוספת עצירה</span>
+          </button>
+
+          <div id="stop-field-wrapper" class="hidden mt-2 mr-9 bg-indigo-50/60 border border-indigo-100 rounded-xl p-2.5">
+            <div class="flex items-center justify-between mb-1">
+              <label for="input-stop" class="text-xs font-bold text-indigo-950">תחנת עצירה בדרך</label>
+              <button id="btn-remove-stop" type="button" class="text-[11px] font-semibold text-rose-600 hover:underline">הסר עצירה</button>
+            </div>
+            <input id="input-stop" type="text" placeholder="למשל: מרחב צפון / חצור..." class="w-full bg-white border border-indigo-200 focus:border-[#5b4ce6] rounded-lg px-2.5 py-1.5 text-sm text-slate-800 outline-none transition" />
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <span class="w-7 h-7 rounded-full bg-indigo-50 text-[#5b4ce6] flex items-center justify-center shrink-0 font-bold text-xs">⌖</span>
+          <div class="flex-1">
+            <label for="input-dest" class="block text-[11px] font-semibold text-slate-400">יעד</label>
+            <input id="input-dest" type="text" placeholder="הזן או בחר יעד נסיעה..." class="w-full bg-transparent border-b border-slate-300 focus:border-[#5b4ce6] py-1.5 text-sm font-medium text-slate-800 outline-none rounded-md px-1 transition" />
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+        <label for="input-purpose" class="block text-sm font-bold text-slate-900 mb-2.5">מהי מטרת הנסיעה?</label>
+        <select id="input-purpose" class="w-full bg-slate-50 border border-slate-200 focus:border-[#5b4ce6] rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none transition">
+          <option value="">בחר מטרת נסיעה...</option>
+        </select>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+        <h3 class="text-sm font-bold text-slate-900 mb-3">מהו סוג הנסיעה?</h3>
+        <div class="grid grid-cols-2 gap-2.5">
+          <button id="btn-trip-operational" type="button" class="py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50">
+            נסיעה מבצעית
+          </button>
+          <button id="btn-trip-admin" type="button" class="py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50">
+            נסיעה מנהלתית
+          </button>
+        </div>
+      </div>
+
+      <button id="btn-next-to-step2" type="button" class="w-full py-3.5 px-5 rounded-2xl bg-[#5b4ce6] hover:bg-[#4939d4] text-white font-bold text-sm shadow-lg shadow-indigo-500/25 transition">
+        המשך לשיבוץ רכב וצוות ←
+      </button>
+    </section>
+
+    <!-- שלב 2 -->
+    <section id="step-2-container" class="hidden p-4 sm:p-5 bg-slate-50/80 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-extrabold text-slate-900">שיבוץ רכב וצוות</h2>
+        <span class="text-xs font-medium text-slate-500">שלב 2 מתוך 3</span>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+        <label for="input-vehicle-plate" class="block text-sm font-bold text-slate-900 mb-2">מספר הרכב</label>
+        <input id="input-vehicle-plate" type="text" placeholder="מס' לוחית רישוי/צ'" class="w-full bg-transparent border-b border-slate-300 focus:border-[#5b4ce6] py-1.5 text-sm font-medium text-slate-800 outline-none rounded-md px-1 transition" />
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+        <h3 class="text-sm font-bold text-slate-900">בחירת נהג</h3>
+        <div class="grid grid-cols-2 gap-2.5">
+          <button id="btn-driver-select" type="button" class="py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50">
+            בחירת נהג
+          </button>
+          <button id="btn-driver-me" type="button" class="py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50">
+            אני נהג
+          </button>
+        </div>
+
+        <div id="driver-id-box" class="hidden pt-2 border-t border-slate-100 space-y-1.5">
+          <label id="driver-id-label" for="input-driver-id" class="block text-xs font-bold text-slate-700">תעודת זהות נהג</label>
+          <input id="input-driver-id" type="text" inputmode="numeric" maxlength="9" placeholder="הזן 9 ספרות של הנהג..." class="w-full bg-slate-50 border border-slate-200 focus:border-[#5b4ce6] rounded-xl px-3 py-2 text-sm font-medium text-slate-800 outline-none transition" />
+          <p id="driver-resolved-name" class="hidden text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-1"></p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+        <h3 class="text-sm font-bold text-slate-900">בחירת מפקד משימה</h3>
+        <div class="grid grid-cols-2 gap-2.5">
+          <button id="btn-cmd-select" type="button" class="py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50">
+            בחירת מפקד משימה
+          </button>
+          <button id="btn-cmd-me" type="button" class="py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50">
+            אני מפקד משימה
+          </button>
+        </div>
+
+        <div id="cmd-id-box" class="hidden pt-2 border-t border-slate-100 space-y-1.5">
+          <label id="cmd-id-label" for="input-cmd-id" class="block text-xs font-bold text-slate-700">תעודת זהות מפקד משימה</label>
+          <input id="input-cmd-id" type="text" inputmode="numeric" maxlength="9" placeholder="הזן 9 ספרות של מפקד המשימה..." class="w-full bg-slate-50 border border-slate-200 focus:border-[#5b4ce6] rounded-xl px-3 py-2 text-sm font-medium text-slate-800 outline-none transition" />
+          <p id="cmd-resolved-name" class="hidden text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-1"></p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+        <h3 class="text-sm font-bold text-slate-900">בחירת מפקד משלח</h3>
+        <div>
+          <label for="input-disp-id" class="block text-xs font-semibold text-slate-500 mb-1">תעודת זהות</label>
+          <input id="input-disp-id" type="text" inputmode="numeric" maxlength="9" placeholder="תעודת זהות" class="w-full bg-transparent border-b border-slate-300 focus:border-[#5b4ce6] py-1.5 text-sm font-medium text-slate-800 outline-none rounded-md px-1 transition" />
+          <p id="disp-resolved-name" class="hidden mt-1 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-1"></p>
+        </div>
+        <div>
+          <label for="input-disp-phone" class="block text-xs font-semibold text-slate-500 mb-1">מס' נייד</label>
+          <input id="input-disp-phone" type="text" inputmode="tel" placeholder="מס' נייד (מושלם אוטומטית לפי ת.ז ב-SmartBase)" class="w-full bg-slate-50 border-b border-slate-200 py-1.5 text-sm font-medium text-slate-700 outline-none rounded-md px-2 transition" />
+          <p id="disp-phone-auto-badge" class="hidden mt-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1">
+            ✓ הושלם אוטומטית ע"י SmartBase לפי תעודת הזהות
+          </p>
+        </div>
+      </div>
+
+      <div class="flex gap-2.5">
+        <button id="btn-back-to-step1" type="button" class="px-4 py-3.5 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-sm transition">
+          → שלב 1
+        </button>
+        <button id="btn-next-to-step3" type="button" class="flex-1 py-3.5 px-5 rounded-2xl bg-[#5b4ce6] hover:bg-[#4939d4] text-white font-bold text-sm shadow-lg shadow-indigo-500/25 transition">
+          המשך לאישור וחתימה ←
+        </button>
+      </div>
+    </section>
+
+    <!-- שלב 3 -->
+    <section id="step-3-container" class="hidden p-4 sm:p-5 bg-slate-50/80 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-extrabold text-slate-900">אישור וחתימה</h2>
+        <span class="text-xs font-medium text-slate-500">שלב 3 מתוך 3</span>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+        <h3 class="text-sm font-bold text-slate-900">הנחיות בטיחות וביצוע משימה</h3>
+        <div class="max-h-56 overflow-y-auto pr-1 text-xs leading-relaxed text-slate-700 space-y-2 border border-slate-100 rounded-xl p-3 bg-slate-50/70">
+          <p><strong>א.</strong> לבצע את המשימה במלואה בהתאם לתדרוך מפקד המשלח בדרך שתבטיח ביצוע המשימה באופן בטיחותי.</p>
+          <p><strong>ב.</strong> לוודא כי כל הנוסעים חגורים ועפ"י הצורך חבושים בקסדות בהתאם לסוג כלי הרכב.</p>
+          <p><strong>ג.</strong> וודא שהציוד מעוגן (בתא הנהג, בתא הנוסעים ובתא משא).</p>
+          <p><strong>ד.</strong> למנוע היסחי דעת לנהג! וודא אי שימוש בטלפון נייד במהלך נסיעה, וודא העברת חוגר בענ"א, בצע עצירות במקומות מוגדרים ומאושרים לצורך רענון.</p>
+          <p><strong>ה.</strong> לוודא שרישיון הנהיגה וההיתר מתאימים לסוג הרכב עליו אתה נוהג.</p>
+          <p><strong>ו.</strong> לוודא כי נתנו לך שעות השינה והמנוחה טרם המשימה והנך כשיר לנהיגה וביצוע המשימה. פרטי המשימה ברורים ומובנים לך לאחר קבלת תדרוך מפקד משלח משימה.</p>
+          <p><strong>ז.</strong> לוודא הימצאות מסמכי רכב: רישיון רכב, ספר רכב וכיול טכוגרף ולבצע טיפול לפני תנועה ווידוא המצאות כלי נהג תקינים ואפוד זוהר בכלי הרכב.</p>
+          <p><strong>ח.</strong> לבצע תרגולות בטיחות מחייבות בהתאם לסוג המשימה והרכב (תרגולת התהפכות, תרגולת ירידה לשול, תרגולת שריפה).</p>
+          <p><strong>ט.</strong> במידה ואירעו אירועים בטיחותיים ו/או משמעותיים לעצור את המשימה ולדווח על האירוע למפקד המשלח.</p>
+          <p><strong>י.</strong> למלא ולחתום על כרטיס העבודה.</p>
+          <p><strong>יא.</strong> הנהג אחראי על ביצוע סוג המשימה, תחילה וסיומה, ציר הנסיעה, מקומות לעצירה והתרעננות, נת"בים, תנאי מז"א, ווידוא כשירות הרכב, תקינות מערכת ענ"א.</p>
+          <p><strong>יב.</strong> ווידוא הימצאות מטף כיבוי אש תקין בכלי הרכב הנדרשים לכך.</p>
+        </div>
+
+        <label class="flex items-center gap-2.5 pt-1 cursor-pointer select-none">
+          <input id="checkbox-ack-guidelines" type="checkbox" class="w-4 h-4 rounded accent-[#5b4ce6]" />
+          <span class="text-xs sm:text-sm font-bold text-slate-800">קראתי והבנתי את ההנחיות.</span>
+        </label>
+      </div>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900">חתימה דיגיטלית וקילומטראז'</h3>
+            <p id="step3-summary-status" class="text-xs text-slate-500 mt-0.5">טרם הוזנו חתימה וקילומטראז'</p>
+          </div>
+          <button id="btn-open-sign-modal" type="button" class="px-4 py-2 rounded-xl bg-[#5b4ce6] hover:bg-[#4939d4] text-white text-xs font-bold shadow transition">
+            פתח חתימה וק"מ
+          </button>
+        </div>
+      </div>
+
+      <div class="flex gap-2.5">
+        <button id="btn-back-to-step2" type="button" class="px-4 py-3.5 rounded-2xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-sm transition">
+          → שלב 2
+        </button>
+        <button id="btn-submit-ticket" type="button" class="flex-1 py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-lg shadow-emerald-600/25 transition">
+          שלח כרטיס עבודה ✓
+        </button>
+      </div>
+
+      <div id="submit-confirmation-card" class="hidden bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2.5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-extrabold text-emerald-900">✓ כרטיס העבודה נשלח בהצלחה!</span>
+          <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-600 text-white">מאושר</span>
+        </div>
+        <div id="submit-confirmation-details" class="text-xs text-emerald-950 space-y-1 leading-relaxed"></div>
+        <button id="btn-new-ticket-after-submit" type="button" class="w-full mt-1 py-2 px-3 rounded-xl bg-white border border-emerald-300 hover:bg-emerald-100/70 text-emerald-900 text-xs font-bold transition">
+          פתח כרטיס עבודה חדש
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- חלונית חתימה -->
+  <div id="sign-modal" class="hidden fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h3 class="text-base font-extrabold text-slate-900">חתימה דיגיטלית</h3>
+        <button id="btn-close-sign-modal" type="button" class="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500 font-bold">✕</button>
+      </div>
+
+      <div class="text-center space-y-1">
+        <p class="text-sm font-extrabold text-slate-900">חתמו באמצעות האצבע על גבי איזור החתימה</p>
+        <p class="text-xs text-slate-500">לנוחיותכם סובבו את המסך</p>
+      </div>
+
+      <div>
+        <canvas id="signature-canvas" class="w-full h-40 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 touch-none cursor-crosshair"></canvas>
+        <div class="flex justify-end mt-1">
+          <button id="btn-clear-signature" type="button" class="text-xs font-bold text-[#5b4ce6] hover:underline px-2 py-1">
+            מחיקה
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label for="input-odometer" class="block text-sm font-bold text-slate-900 mb-1.5">הזנת קילומטראז' נוכחי ברכב</label>
+        <input id="input-odometer" type="text" inputmode="numeric" placeholder='ק"מ (למשל: 84210)' class="w-full bg-transparent border-b-2 border-[#5b4ce6] py-2 text-sm font-bold text-slate-800 outline-none" />
+        <p id="odometer-error" class="hidden text-xs font-semibold text-rose-600 mt-1">קילומטרז' לא תקין - הזן ספרות</p>
+      </div>
+
+      <button id="btn-save-sign-modal" type="button" class="w-full py-3 rounded-2xl bg-[#5b4ce6] hover:bg-[#4939d4] text-white font-bold text-sm shadow-lg transition">
+        שמירה
+      </button>
+    </div>
+  </div>
+
+  <!-- כפתור צף -->
+  <button id="ext-fab" type="button" class="quickfill-fab">
+    <span>⚡</span>
+    <span>מילוי מהיר</span>
+  </button>
+
+  <!-- מגירת התוסף -->
+  <div id="ext-drawer" class="hidden fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm flex items-end justify-center p-0 sm:p-4">
+    <div id="ext-sheet" class="bg-white w-full max-w-md max-h-[88vh] rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+      <div class="px-4 pt-4 pb-3 bg-slate-900 text-white flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">⚡</span>
+          <div>
+            <h2 class="text-sm font-extrabold">תוסף מילוי מהיר - SmartBase</h2>
+            <p id="ext-step-subtitle" class="text-[11px] text-indigo-200">שלב 1 • תכנון נסיעה ומסלולים</p>
+          </div>
+        </div>
+        <button id="ext-close" type="button" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-sm font-bold">✕</button>
+      </div>
+
+      <div class="grid grid-cols-2 bg-slate-100 p-1 m-3 mb-1 rounded-xl gap-1">
+        <button id="ext-tab-fill" type="button" class="py-2 rounded-lg text-xs font-bold bg-white text-[#5b4ce6] shadow-sm transition">
+          ⚡ מילוי מהיר
+        </button>
+        <button id="ext-tab-manage" type="button" class="py-2 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 transition">
+          ⚙️ ניהול רשימות ות"ז
+        </button>
+      </div>
+
+      <div id="ext-body" class="p-4 overflow-y-auto space-y-4 flex-1"></div>
+    </div>
+  </div>
+
+  <div id="toast-banner" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-2xl shadow-xl border border-white/15 max-w-[92vw] text-center"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const STORAGE_KEY = 'sb_quickfill_demo_v5';
+
+      const TRIP_PURPOSES = [
+        'תפקיד', 'נסיעה פרטית', 'אחזקה', 'חניית לילה', 'נסיעת מבחן לרכב',
+        'מבחן שליטה', 'טיפול שבועי', 'טיפול חודשי', 'טיפול תלת', 'רענון נהג מילואים',
+        'הכשרה כביש יום', 'הכשרה כביש לילה', 'הכשרה שטח יום', 'הכשרה שטח לילה', 'הכרת הרכב עיוני ומעשי',
+        'הכרת גזרה', 'טיפול דו-שבועי', 'תרגולת 3.07', 'רענון נהג מילואים בשטח', 'הכשרת נגרר',
+        'לינת בית', 'רענון מעשי למלגזה', 'לימוד נהיגה', 'ציר קיצון', 'רענון נהג',
+        'הובלת חומ"ס', 'רענון חומ"ס', 'הדרכת נהיגה', 'מפגש כביש מסלול', 'נהיגה חשוכה',
+        'רענון נהיגה חשוכה', 'גרירת מטוס', 'נהיגה עצמית', 'ביצוע היתר 52', 'תוכן רפואי היתר 52',
+        'נסיעה למוסך ללא מסמכי רכב', 'הכשרת צמ"ה', 'הכשרת רכב חשמלי', 'הכשרת מלגזה', 'היתר גרור 58'
+      ];
+
+      function getDefaultData() {
+        return {
+          myId: '301234567',
+          purposeCounts: { 'תפקיד': 3 },
+          lastOdometers: {},
+          routes: [
+            {
+              name: 'בית הלל ◄ מרחב צפון ◄ בית הלל',
+              origin: 'בית הלל',
+              stop: 'מרחב צפון',
+              dest: 'בית הלל',
+              purpose: 'תפקיד',
+              tripType: 'נסיעה מנהלתית'
+            },
+            {
+              name: 'בית הלל ◄ מחנה ירדן',
+              origin: 'בית הלל',
+              stop: '',
+              dest: 'מחנה ירדן',
+              purpose: 'תפקיד',
+              tripType: 'נסיעה מבצעית'
+            }
+          ],
+          vehicles: [
+            { name: 'היילקס לבן', plate: '849201' },
+            { name: 'סוואנה פיקוד', plate: '712045' }
+          ],
+          people: [
+            { name: 'דני (משלח)', id: '029481726', role: 'משלח' },
+            { name: 'אבי (מפקד / נהג)', id: '034819275', role: 'מפקד / נהג' }
+          ]
+        };
+      }
+
+      function loadData() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+          const def = getDefaultData();
+          if (!parsed || typeof parsed !== 'object') return def;
+          return {
+            myId: typeof parsed.myId === 'string' && parsed.myId.trim() ? parsed.myId.trim() : def.myId,
+            purposeCounts: parsed.purposeCounts && typeof parsed.purposeCounts === 'object' ? parsed.purposeCounts : def.purposeCounts,
+            lastOdometers: parsed.lastOdometers && typeof parsed.lastOdometers === 'object' ? parsed.lastOdometers : {},
+            routes: Array.isArray(parsed.routes) ? parsed.routes : def.routes,
+            vehicles: Array.isArray(parsed.vehicles) ? parsed.vehicles : def.vehicles,
+            people: Array.isArray(parsed.people) ? parsed.people : def.people
+          };
+        } catch (err) {
+          return getDefaultData();
+        }
+      }
+
+      let appData = loadData();
+
+      function saveData() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+        } catch (err) {
+          showToast('לא ניתן לשמור לאחסון המקומי');
+        }
+      }
+
+      function getSortedTripPurposes() {
+        const counts = appData.purposeCounts || {};
+        return TRIP_PURPOSES
+          .map((purpose, idx) => ({ purpose, count: Number(counts[purpose] || 0), idx }))
+          .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.idx - b.idx))
+          .map(item => item.purpose);
+      }
+
+      function recordPurposeUsage(purpose) {
+        if (!purpose || !TRIP_PURPOSES.includes(purpose)) return;
+        if (!appData.purposeCounts || typeof appData.purposeCounts !== 'object') appData.purposeCounts = {};
+        appData.purposeCounts[purpose] = Number(appData.purposeCounts[purpose] || 0) + 1;
+        saveData();
+      }
+
+      function autoSaveRouteIfNew(origin, stop, dest, purpose, tripType) {
+        const o = String(origin || '').trim();
+        const s = String(stop || '').trim();
+        const d = String(dest || '').trim();
+        if (!o || !d) return null;
+
+        const existingIdx = appData.routes.findIndex(
+          r => (r.origin || '').trim() === o && (r.stop || '').trim() === s && (r.dest || '').trim() === d
+        );
+
+        if (existingIdx !== -1) {
+          appData.routes[existingIdx].purpose = purpose || appData.routes[existingIdx].purpose || 'תפקיד';
+          appData.routes[existingIdx].tripType = tripType || appData.routes[existingIdx].tripType || 'נסיעה מנהלתית';
+          saveData();
+          return existingIdx;
+        }
+
+        const routeName = `${o}${s ? ` ◄ ${s}` : ''} ◄ ${d}`;
+        appData.routes.unshift({
+          name: routeName,
+          origin: o,
+          stop: s,
+          dest: d,
+          purpose: purpose || 'תפקיד',
+          tripType: tripType || 'נסיעה מנהלתית'
+        });
+        saveData();
+        showToast(`מסלול חדש נשמר אוטומטית: ${routeName}`);
+        return 0;
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      let toastTimer = null;
+      function showToast(msg) {
+        if (!toastBanner || !msg) return;
+        toastBanner.textContent = msg;
+        toastBanner.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastBanner.classList.add('hidden'), 2800);
+      }
+
+      function flashElement(el) {
+        if (!el) return;
+        el.classList.remove('fill-flash');
+        void el.offsetWidth;
+        el.classList.add('fill-flash');
+      }
+
+      function resolveSmartBaseNameById(rawId) {
+        const cleanId = String(rawId || '').replace(/\D/g, '');
+        if (!cleanId) return '';
+        if (cleanId === String(appData.myId || '').replace(/\D/g, '')) return 'משתמש מחובר (אני)';
+        const matched = appData.people.find(p => String(p.id || '').replace(/\D/g, '') === cleanId);
+        if (matched && matched.name) return matched.name.replace(/\s*\([^)]*\)\s*/g, '').trim() || matched.name;
+        const sampleNames = ['יואב כהן', 'נועה לוי', 'רון מזרחי', 'תמר אברהם', 'עידן ביטון', 'מאיה שפירא'];
+        const sum = cleanId.split('').reduce((acc, ch) => acc + Number(ch), 0);
+        return sampleNames[sum % sampleNames.length];
+      }
+
+      function autoSavePersonFromSmartBase(rawId, badgeEl, roleLabel) {
+        const cleanId = String(rawId || '').replace(/\D/g, '');
+        if (cleanId.length !== 9) {
+          if (badgeEl) badgeEl.classList.add('hidden');
+          return;
+        }
+        const resolvedName = resolveSmartBaseNameById(cleanId);
+        const alreadyInList = appData.people.some(p => String(p.id || '').replace(/\D/g, '') === cleanId);
+        const isMyId = cleanId === String(appData.myId || '').replace(/\D/g, '');
+        if (!alreadyInList && !isMyId) {
+          const displayName = roleLabel ? `${resolvedName} (${roleLabel})` : resolvedName;
+          appData.people.push({ name: displayName, id: cleanId, role: roleLabel || 'צוות' });
+          saveData();
+          showToast(`נשמר אוטומטית למאגר: ${displayName}`);
+        }
+        if (badgeEl) {
+          badgeEl.textContent = `✓ זוהה ב-SmartBase: ${resolvedName} (${cleanId})`;
+          badgeEl.classList.remove('hidden');
+          flashElement(badgeEl);
+        }
+      }
+
+      const formState = {
+        step: 1,
+        hasStop: false,
+        tripType: '',
+        driverMode: '',
+        cmdMode: '',
+        hasSignature: false,
+        odometer: '',
+        purposeRecordedForTicket: false
+      };
+
+      const extState = {
+        tab: 'fill',
+        editingMyId: false,
+        selectedRouteIdx: appData.routes.length > 0 ? '0' : '',
+        quickOrigin: appData.routes[0]?.origin || '',
+        quickStop: appData.routes[0]?.stop || '',
+        quickDest: appData.routes[0]?.dest || '',
+        quickPurpose: appData.routes[0]?.purpose || 'תפקיד',
+        quickTripType: appData.routes[0]?.tripType || 'נסיעה מנהלתית',
+        selectedVehiclePlate: appData.vehicles[0]?.plate || '',
+        driverChoice: 'me',
+        driverPersonId: appData.people[1]?.id || '',
+        driverCustomId: '',
+        cmdChoice: 'me',
+        cmdPersonId: appData.people[1]?.id || '',
+        cmdCustomId: '',
+        dispPersonId: appData.people[0]?.id || '',
+        dispCustomId: '',
+        quickOdometer: ''
+      };
+
+      const step1El = document.getElementById('step-1-container');
+      const step2El = document.getElementById('step-2-container');
+      const step3El = document.getElementById('step-3-container');
+      const inputOrigin = document.getElementById('input-origin');
+      const inputStop = document.getElementById('input-stop');
+      const stopFieldWrapper = document.getElementById('stop-field-wrapper');
+      const labelToggleStop = document.getElementById('label-toggle-stop');
+      const inputDest = document.getElementById('input-dest');
+      const inputPurpose = document.getElementById('input-purpose');
+      const btnTripOp = document.getElementById('btn-trip-operational');
+      const btnTripAdmin = document.getElementById('btn-trip-admin');
+      const inputPlate = document.getElementById('input-vehicle-plate');
+      const btnDriverSelect = document.getElementById('btn-driver-select');
+      const btnDriverMe = document.getElementById('btn-driver-me');
+      const driverIdBox = document.getElementById('driver-id-box');
+      const driverIdLabel = document.getElementById('driver-id-label');
+      const inputDriverId = document.getElementById('input-driver-id');
+      const driverResolvedName = document.getElementById('driver-resolved-name');
+      const btnCmdSelect = document.getElementById('btn-cmd-select');
+      const btnCmdMe = document.getElementById('btn-cmd-me');
+      const cmdIdBox = document.getElementById('cmd-id-box');
+      const cmdIdLabel = document.getElementById('cmd-id-label');
+      const inputCmdId = document.getElementById('input-cmd-id');
+      const cmdResolvedName = document.getElementById('cmd-resolved-name');
+      const inputDispId = document.getElementById('input-disp-id');
+      const dispResolvedName = document.getElementById('disp-resolved-name');
+      const inputDispPhone = document.getElementById('input-disp-phone');
+      const dispPhoneBadge = document.getElementById('disp-phone-auto-badge');
+      const checkboxAck = document.getElementById('checkbox-ack-guidelines');
+      const step3SummaryStatus = document.getElementById('step3-summary-status');
+      const submitConfirmationCard = document.getElementById('submit-confirmation-card');
+      const submitConfirmationDetails = document.getElementById('submit-confirmation-details');
+      const signModal = document.getElementById('sign-modal');
+      const sigCanvas = document.getElementById('signature-canvas');
+      const inputOdometer = document.getElementById('input-odometer');
+      const odometerError = document.getElementById('odometer-error');
+      const extFab = document.getElementById('ext-fab');
+      const extDrawer = document.getElementById('ext-drawer');
+      const extClose = document.getElementById('ext-close');
+      const extTabFill = document.getElementById('ext-tab-fill');
+      const extTabManage = document.getElementById('ext-tab-manage');
+      const extBody = document.getElementById('ext-body');
+      const extStepSubtitle = document.getElementById('ext-step-subtitle');
+      const toastBanner = document.getElementById('toast-banner');
+
+      function setStep(stepNum) {
+        const target = Math.min(3, Math.max(1, Number(stepNum) || 1));
+        formState.step = target;
+        step1El.classList.toggle('hidden', target !== 1);
+        step2El.classList.toggle('hidden', target !== 2);
+        step3El.classList.toggle('hidden', target !== 3);
+
+        const activeNav = 'px-3 py-1.5 rounded-xl text-xs font-bold transition bg-[#5b4ce6] text-white shadow-sm';
+        const idleNav = 'px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 text-slate-700 hover:bg-slate-200';
+        document.getElementById('nav-step-1').className = target === 1 ? activeNav : idleNav;
+        document.getElementById('nav-step-2').className = target === 2 ? activeNav : idleNav;
+        document.getElementById('nav-step-3').className = target === 3 ? activeNav : idleNav;
+
+        [1, 2, 3].forEach((s) => {
+          const circle = document.getElementById(`stepper-circle-${s}`);
+          if (!circle) return;
+          if (s === target) {
+            circle.className = 'w-7 h-7 rounded-full bg-[#5b4ce6] text-white text-xs font-bold flex items-center justify-center shadow';
+          } else if (s < target) {
+            circle.className = 'w-7 h-7 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center';
+          } else {
+            circle.className = 'w-7 h-7 rounded-full bg-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center';
+          }
+        });
+
+        updateExtSubtitle();
+        if (!extDrawer.classList.contains('hidden') && extState.tab === 'fill') renderExtContent();
+      }
+
+      function populatePurposeSelect(preferredValue) {
+        const currentVal = typeof preferredValue === 'string' ? preferredValue : inputPurpose.value;
+        const sortedPurposes = getSortedTripPurposes();
+        const counts = appData.purposeCounts || {};
+        inputPurpose.innerHTML =
+          '<option value="">בחר מטרת נסיעה...</option>' +
+          sortedPurposes.map((p) => {
+            const c = Number(counts[p] || 0);
+            const label = c > 0 ? `★ ${p} (${c} בחירות)` : p;
+            return `<option value="${escapeHtml(p)}">${escapeHtml(label)}</option>`;
+          }).join('');
+        if (currentVal && TRIP_PURPOSES.includes(currentVal)) inputPurpose.value = currentVal;
+      }
+
+      function setStopVisibility(visible, clearOnHide = false) {
+        formState.hasStop = Boolean(visible);
+        stopFieldWrapper.classList.toggle('hidden', !formState.hasStop);
+        labelToggleStop.textContent = formState.hasStop ? 'עצירה פעילה בדרך' : 'הוספת עצירה';
+        if (!formState.hasStop && clearOnHide) inputStop.value = '';
+      }
+
+      function setTripType(type) {
+        formState.tripType = type;
+        const activeClasses = 'py-2.5 px-3 rounded-full border border-[#5b4ce6] bg-[#5b4ce6] text-white text-xs sm:text-sm font-bold transition shadow-sm';
+        const idleClasses = 'py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50';
+        btnTripOp.className = type === 'נסיעה מבצעית' ? activeClasses : idleClasses;
+        btnTripAdmin.className = type === 'נסיעה מנהלתית' ? activeClasses : idleClasses;
+      }
+
+      function setDriverMode(mode, autoIdValue) {
+        formState.driverMode = mode;
+        const activeClasses = 'py-2.5 px-3 rounded-full border border-[#5b4ce6] bg-[#5b4ce6] text-white text-xs sm:text-sm font-bold transition shadow-sm';
+        const idleClasses = 'py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50';
+        btnDriverMe.className = mode === 'me' ? activeClasses : idleClasses;
+        btnDriverSelect.className = mode === 'select' ? activeClasses : idleClasses;
+
+        if (mode === 'me' || mode === 'select') {
+          driverIdBox.classList.remove('hidden');
+          driverIdLabel.textContent = mode === 'me' ? 'תעודת זהות שלי (נהג)' : 'תעודת זהות הנהג שנבחר';
+          if (typeof autoIdValue === 'string') inputDriverId.value = autoIdValue;
+          autoSavePersonFromSmartBase(inputDriverId.value, driverResolvedName, 'נהג');
+          flashElement(inputDriverId);
+        } else {
+          driverIdBox.classList.add('hidden');
+          inputDriverId.value = '';
+          driverResolvedName.classList.add('hidden');
+        }
+      }
+
+      function setCmdMode(mode, autoIdValue) {
+        formState.cmdMode = mode;
+        const activeClasses = 'py-2.5 px-3 rounded-full border border-[#5b4ce6] bg-[#5b4ce6] text-white text-xs sm:text-sm font-bold transition shadow-sm';
+        const idleClasses = 'py-2.5 px-3 rounded-full border border-[#5b4ce6] text-[#5b4ce6] text-xs sm:text-sm font-bold transition hover:bg-indigo-50';
+        btnCmdMe.className = mode === 'me' ? activeClasses : idleClasses;
+        btnCmdSelect.className = mode === 'select' ? activeClasses : idleClasses;
+
+        if (mode === 'me' || mode === 'select') {
+          cmdIdBox.classList.remove('hidden');
+          cmdIdLabel.textContent = mode === 'me' ? 'תעודת זהות שלי (מפקד משימה)' : 'תעודת זהות מפקד המשימה';
+          if (typeof autoIdValue === 'string') inputCmdId.value = autoIdValue;
+          autoSavePersonFromSmartBase(inputCmdId.value, cmdResolvedName, 'מפקד משימה');
+          flashElement(inputCmdId);
+        } else {
+          cmdIdBox.classList.add('hidden');
+          inputCmdId.value = '';
+          cmdResolvedName.classList.add('hidden');
+        }
+      }
+
+      function syncDispatcherAutoPhone() {
+        const cleanId = inputDispId.value.replace(/\D/g, '').slice(0, 9);
+        if (inputDispId.value !== cleanId) inputDispId.value = cleanId;
+        if (cleanId.length === 9) {
+          autoSavePersonFromSmartBase(cleanId, dispResolvedName, 'משלח');
+          const lastFour = cleanId.slice(-4);
+          inputDispPhone.value = `050-2${lastFour.slice(0, 2)}-${lastFour.slice(2)}00`;
+          dispPhoneBadge.classList.remove('hidden');
+          flashElement(inputDispPhone);
+        } else {
+          inputDispPhone.value = '';
+          dispPhoneBadge.classList.add('hidden');
+          dispResolvedName.classList.add('hidden');
+        }
+      }
+
+      function updateStep3Summary() {
+        const parts = [];
+        if (formState.hasSignature) parts.push('חתימה נשמרה ✓');
+        if (formState.odometer) parts.push(`ק"מ: ${formState.odometer}`);
+        step3SummaryStatus.textContent = parts.length > 0 ? parts.join(' • ') : 'טרם הוזנו חתימה וקילומטראז\'';
+      }
+
+      const sigCtx = sigCanvas.getContext('2d');
+      let isDrawing = false;
+      let hasDrawnStroke = false;
+
+      function resizeSignatureCanvas(clearExisting) {
+        const rect = sigCanvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        let prevDataUrl = null;
+        if (!clearExisting && hasDrawnStroke && sigCanvas.width > 0 && sigCanvas.height > 0) {
+          try { prevDataUrl = sigCanvas.toDataURL('image/png'); } catch (_) {}
+        }
+        sigCanvas.width = Math.round(rect.width * dpr);
+        sigCanvas.height = Math.round(rect.height * dpr);
+        sigCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        sigCtx.lineWidth = 3;
+        sigCtx.lineCap = 'round';
+        sigCtx.lineJoin = 'round';
+        sigCtx.strokeStyle = '#1e1b4b';
+        if (prevDataUrl) {
+          const img = new Image();
+          img.onload = () => {
+            sigCtx.drawImage(img, 0, 0, rect.width, rect.height);
+          };
+          img.src = prevDataUrl;
+        }
+      }
+
+      function getCanvasPoint(evt) {
+        const rect = sigCanvas.getBoundingClientRect();
+        const clientX = evt.touches && evt.touches[0] ? evt.touches[0].clientX : evt.clientX;
+        const clientY = evt.touches && evt.touches[0] ? evt.touches[0].clientY : evt.clientY;
+        return { x: clientX - rect.left, y: clientY - rect.top };
+      }
+
+      function startStroke(evt) {
+        evt.preventDefault();
+        if (sigCanvas.width === 0) resizeSignatureCanvas(true);
+        const pt = getCanvasPoint(evt);
+        isDrawing = true;
+        hasDrawnStroke = true;
+        sigCtx.beginPath();
+        sigCtx.moveTo(pt.x, pt.y);
+      }
+
+      function moveStroke(evt) {
+        if (!isDrawing) return;
+        evt.preventDefault();
+        const pt = getCanvasPoint(evt);
+        sigCtx.lineTo(pt.x, pt.y);
+        sigCtx.stroke();
+      }
+
+      function endStroke() {
+        if (!isDrawing) return;
+        isDrawing = false;
+        sigCtx.closePath();
+      }
+
+      function drawSampleSignature() {
+        if (sigCanvas.width === 0) resizeSignatureCanvas(true);
+        const rect = sigCanvas.getBoundingClientRect();
+        const w = rect.width || 300;
+        const h = rect.height || 160;
+        sigCtx.clearRect(0, 0, w, h);
+        sigCtx.beginPath();
+        sigCtx.moveTo(w * 0.78, h * 0.35);
+        sigCtx.bezierCurveTo(w * 0.62, h * 0.22, w * 0.55, h * 0.72, w * 0.42, h * 0.45);
+        sigCtx.bezierCurveTo(w * 0.34, h * 0.3, w * 0.25, h * 0.68, w * 0.18, h * 0.54);
+        sigCtx.stroke();
+        hasDrawnStroke = true;
+      }
+
+      function clearSignature() {
+        const rect = sigCanvas.getBoundingClientRect();
+        sigCtx.clearRect(0, 0, rect.width || sigCanvas.width, rect.height || sigCanvas.height);
+        hasDrawnStroke = false;
+        formState.hasSignature = false;
+        updateStep3Summary();
+      }
+
+      sigCanvas.addEventListener('mousedown', startStroke);
+      sigCanvas.addEventListener('mousemove', moveStroke);
+      window.addEventListener('mouseup', endStroke);
+      sigCanvas.addEventListener('touchstart', startStroke, { passive: false });
+      sigCanvas.addEventListener('touchmove', moveStroke, { passive: false });
+      window.addEventListener('touchend', endStroke);
+      window.addEventListener('resize', () => {
+        if (!signModal.classList.contains('hidden')) resizeSignatureCanvas(false);
+      });
+
+      function updateExtSubtitle() {
+        if (extState.tab === 'manage') {
+          extStepSubtitle.textContent = 'ניהול ת"ז קבועה, מסלולים, רכבים ואנשים';
+        } else if (formState.step === 1) {
+          extStepSubtitle.textContent = 'שלב 1 • תכנון נסיעה ומסלולים';
+        } else if (formState.step === 2) {
+          extStepSubtitle.textContent = 'שלב 2 • רכב, נהג, מפקד משימה ומשלח';
+        } else {
+          extStepSubtitle.textContent = 'שלב 3 • אישור הנחיות, חתימה וקילומטראז\'';
+        }
+      }
+
+      function openExtDrawer(preferredTab) {
+        if (preferredTab) extState.tab = preferredTab;
+        extTabFill.className = extState.tab === 'fill'
+          ? 'py-2 rounded-lg text-xs font-bold bg-white text-[#5b4ce6] shadow-sm transition'
+          : 'py-2 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 transition';
+        extTabManage.className = extState.tab === 'manage'
+          ? 'py-2 rounded-lg text-xs font-bold bg-white text-[#5b4ce6] shadow-sm transition'
+          : 'py-2 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 transition';
+        updateExtSubtitle();
+        renderExtContent();
+        extDrawer.classList.remove('hidden');
+      }
+
+      function closeExtDrawer() {
+        extDrawer.classList.add('hidden');
+      }
+
+      function renderExtContent() {
+        updateExtSubtitle();
+        if (extState.tab === 'manage') renderManageTab();
+        else if (formState.step === 1) renderStep1QuickFill();
+        else if (formState.step === 2) renderStep2QuickFill();
+        else renderStep3QuickFill();
+      }
+
+      function renderStep1QuickFill() {
+        const sortedPurposes = getSortedTripPurposes();
+        const counts = appData.purposeCounts || {};
+
+        extBody.innerHTML = `
+          <div class="bg-indigo-50/80 border border-indigo-100 rounded-2xl p-3.5 space-y-3">
+            <div class="flex items-center justify-between">
+              <label for="ext-sel-route" class="text-xs font-extrabold text-indigo-950">בחירת מסלול קבוע:</label>
+              <span class="text-[11px] font-semibold text-[#5b4ce6]">מסלול חדש נשמר אוטומטית</span>
+            </div>
+
+            <select id="ext-sel-route" class="w-full p-2.5 rounded-xl border border-indigo-200 bg-white text-xs font-bold text-slate-800 outline-none focus:border-[#5b4ce6]">
+              <option value="">-- מסלול חדש / הזנה ידנית --</option>
+              ${appData.routes.map((r, idx) => `<option value="${idx}" ${String(extState.selectedRouteIdx) === String(idx) ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
+            </select>
+
+            <div class="grid grid-cols-3 gap-2 pt-1">
+              <div>
+                <label for="ext-q-origin" class="block text-[11px] font-bold text-slate-600 mb-1">מוצא</label>
+                <input id="ext-q-origin" type="text" value="${escapeHtml(extState.quickOrigin)}" placeholder="מוצא" class="w-full p-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-800 outline-none focus:border-[#5b4ce6]" />
+              </div>
+              <div>
+                <label for="ext-q-stop" class="block text-[11px] font-bold text-emerald-700 mb-1">עצירה (עריכה)</label>
+                <input id="ext-q-stop" type="text" value="${escapeHtml(extState.quickStop)}" placeholder="למשל: חצור" class="w-full p-2 rounded-xl border-2 border-emerald-300 bg-white text-xs font-bold text-slate-800 outline-none focus:border-emerald-500" />
+              </div>
+              <div>
+                <label for="ext-q-dest" class="block text-[11px] font-bold text-slate-600 mb-1">יעד</label>
+                <input id="ext-q-dest" type="text" value="${escapeHtml(extState.quickDest)}" placeholder="יעד" class="w-full p-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-800 outline-none focus:border-[#5b4ce6]" />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label for="ext-q-purpose" class="block text-xs font-bold text-slate-700 mb-1">מטרת הנסיעה (המועדפות בראש):</label>
+            <select id="ext-q-purpose" class="w-full p-2.5 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-800 outline-none focus:border-[#5b4ce6]">
+              ${sortedPurposes.map((p) => {
+                const c = Number(counts[p] || 0);
+                const label = c > 0 ? `★ ${p} (${c} בחירות)` : p;
+                return `<option value="${escapeHtml(p)}" ${extState.quickPurpose === p ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+              }).join('')}
+            </select>
+          </div>
+
+          <div>
+            <span class="block text-xs font-bold text-slate-700 mb-1.5">סוג הנסיעה:</span>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" data-q-trip="נסיעה מנהלתית" class="py-2 px-3 rounded-xl text-xs font-bold border transition ${extState.quickTripType === 'נסיעה מנהלתית' ? 'bg-[#5b4ce6] text-white border-[#5b4ce6]' : 'bg-white text-[#5b4ce6] border-[#5b4ce6]'}">
+                נסיעה מנהלתית
+              </button>
+              <button type="button" data-q-trip="נסיעה מבצעית" class="py-2 px-3 rounded-xl text-xs font-bold border transition ${extState.quickTripType === 'נסיעה מבצעית' ? 'bg-[#5b4ce6] text-white border-[#5b4ce6]' : 'bg-white text-[#5b4ce6] border-[#5b4ce6]'}">
+                נסיעה מבצעית
+              </button>
+            </div>
+          </div>
+
+          <button id="ext-run-step1" type="button" class="w-full py-3.5 px-4 rounded-2xl bg-[#5b4ce6] hover:bg-[#4939d4] text-white text-xs sm:text-sm font-extrabold shadow-lg shadow-indigo-500/25 transition">
+            ⚡ מלא שלב 1 ועבור אוטומטית לשלב 2
+          </button>
+        `;
+
+        document.getElementById('ext-sel-route').addEventListener('change', (e) => {
+          extState.selectedRouteIdx = e.target.value;
+          if (e.target.value !== '') {
+            const route = appData.routes[Number(e.target.value)];
+            if (route) {
+              extState.quickOrigin = route.origin || '';
+              extState.quickStop = route.stop || '';
+              extState.quickDest = route.dest || '';
+              extState.quickPurpose = TRIP_PURPOSES.includes(route.purpose) ? route.purpose : 'תפקיד';
+              extState.quickTripType = route.tripType || 'נסיעה מנהלתית';
+              renderExtContent();
+            }
+          }
+        });
+
+        document.getElementById('ext-q-origin').addEventListener('input', (e) => { extState.quickOrigin = e.target.value; });
+        document.getElementById('ext-q-stop').addEventListener('input', (e) => { extState.quickStop = e.target.value; });
+        document.getElementById('ext-q-dest').addEventListener('input', (e) => { extState.quickDest = e.target.value; });
+        document.getElementById('ext-q-purpose').addEventListener('change', (e) => { extState.quickPurpose = e.target.value; });
+
+        extBody.querySelectorAll('[data-q-trip]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            extState.quickTripType = btn.getAttribute('data-q-trip');
+            renderExtContent();
+          });
+        });
+
+        document.getElementById('ext-run-step1').addEventListener('click', () => {
+          const cleanOrigin = extState.quickOrigin.trim();
+          const trimmedStop = extState.quickStop.trim();
+          const cleanDest = extState.quickDest.trim();
+
+          if (!cleanOrigin || !cleanDest) {
+            showToast('יש למלא לפחות מוצא ויעד לפני המעבר');
+            return;
+          }
+
+          const savedRouteIdx = autoSaveRouteIfNew(cleanOrigin, trimmedStop, cleanDest, extState.quickPurpose, extState.quickTripType);
+          if (savedRouteIdx !== null) extState.selectedRouteIdx = String(savedRouteIdx);
+
+          if (extState.quickPurpose && !formState.purposeRecordedForTicket) {
+            recordPurposeUsage(extState.quickPurpose);
+            formState.purposeRecordedForTicket = true;
+            populatePurposeSelect(extState.quickPurpose);
+          } else if (extState.quickPurpose) {
+            populatePurposeSelect(extState.quickPurpose);
+          }
+
+          inputOrigin.value = cleanOrigin;
+          flashElement(inputOrigin);
+
+          if (trimmedStop) {
+            setStopVisibility(true, false);
+            inputStop.value = trimmedStop;
+            flashElement(inputStop);
+          } else {
+            setStopVisibility(false, true);
+          }
+
+          inputDest.value = cleanDest;
+          flashElement(inputDest);
+          inputPurpose.value = extState.quickPurpose;
+          flashElement(inputPurpose);
+          setTripType(extState.quickTripType);
+
+          setStep(2);
+          showToast('שלב 1 מולא • עבר אוטומטית לשלב 2');
+          renderExtContent();
+        });
+      }
+
+      function renderStep2QuickFill() {
+        const peopleOptionsHtml = appData.people.length
+          ? appData.people.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.id)})</option>`).join('')
+          : '<option value="">אין אנשים שמורים ברשימה</option>';
+
+        extBody.innerHTML = `
+          <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center justify-between gap-2">
+            ${extState.editingMyId ? `
+              <div class="flex-1 flex items-center gap-2">
+                <input id="ext-inline-myid" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(appData.myId)}" class="w-full px-2.5 py-1.5 rounded-lg border border-[#5b4ce6] bg-white text-xs font-bold text-slate-800 outline-none" />
+                <button id="ext-save-inline-myid" type="button" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold shrink-0">שמור</button>
+              </div>
+            ` : `
+              <div>
+                <span class="text-[11px] font-semibold text-slate-500 block">תעודת הזהות הקבועה שלי:</span>
+                <strong class="text-xs font-extrabold text-slate-900">${escapeHtml(appData.myId)}</strong>
+              </div>
+              <button id="ext-edit-inline-myid" type="button" class="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:border-[#5b4ce6] text-xs font-bold text-slate-700 transition">
+                ✏️ ערוך
+              </button>
+            `}
+          </div>
+
+          <div>
+            <label for="ext-sel-vehicle" class="block text-xs font-bold text-slate-700 mb-1">מספר הרכב:</label>
+            <select id="ext-sel-vehicle" class="w-full p-2.5 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-800 outline-none focus:border-[#5b4ce6]">
+              <option value="">-- ללא שינוי / בחר רכב --</option>
+              ${appData.vehicles.map(v => `<option value="${escapeHtml(v.plate)}" ${extState.selectedVehiclePlate === v.plate ? 'selected' : ''}>${escapeHtml(v.name)} (${escapeHtml(v.plate)})</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+            <span class="block text-xs font-bold text-slate-800">נהג:</span>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" data-d-choice="me" class="py-2 px-2.5 rounded-xl text-xs font-bold border transition ${extState.driverChoice === 'me' ? 'bg-[#5b4ce6] text-white border-[#5b4ce6]' : 'bg-white text-[#5b4ce6] border-[#5b4ce6]'}">
+                אני נהג
+              </button>
+              <button type="button" data-d-choice="person" class="py-2 px-2.5 rounded-xl text-xs font-bold border transition ${extState.driverChoice === 'person' ? 'bg-[#5b4ce6] text-white border-[#5b4ce6]' : 'bg-white text-[#5b4ce6] border-[#5b4ce6]'}">
+                בחירת נהג
+              </button>
+            </div>
+            ${extState.driverChoice === 'person' ? `
+              <select id="ext-sel-driver-person" class="w-full p-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium text-slate-800 outline-none">
+                <option value="">-- בחר מהמאגר או הזן ת"ז חדשה למטה --</option>
+                ${peopleOptionsHtml}
+              </select>
+              <div>
+                <label for="ext-custom-driver-id" class="block text-[11px] font-semibold text-slate-600 mb-1">או הזן ת"ז חדשה (נשמר אוטומטית עם שם מ-SmartBase):</label>
+                <input id="ext-custom-driver-id" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.driverCustomId)}" placeholder="תעודת זהות חדשה (9 ספרות)" class="w-full p-2 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-800 outline-none focus:border-[#5b4ce6]" />
+                <p id="ext-driver-auto-preview" class="${extState.driverCustomId.replace(/\D/g, '').length === 9 ? '' : 'hidden'} mt-1 text-[11px] font-bold text-emerald-700">
+                  ${extState.driverCustomId.replace(/\D/g, '').length === 9 ? `שם מזוהה: ${escapeHtml(resolveSmartBaseNameById(extState.driverCustomId))}` : ''}
+                </p>
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+            <span class="block text-xs font-bold text-slate-800">מפקד משימה:</span>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" data-c-choice="me" class="py-2 px-2.5 rounded-xl text-xs font-bold border transition ${extState.cmdChoice === 'me' ? 'bg-[#5b4ce6] text-white border-[#5b4ce6]' : 'bg-white text-[#5b4ce6] border-[#5b4ce6]'}">
+                אני מפקד
+              </button>
+              <button type="button" data-c-choice="person" class="py-2 px-2.5 rounded-xl text-xs font-bold border transition ${extState.cmdChoice === 'person' ? 'bg-[#5b4ce6] text-white border-[#5b4ce6]' : 'bg-white text-[#5b4ce6] border-[#5b4ce6]'}">
+                בחירת מפקד
+              </button>
+            </div>
+            ${extState.cmdChoice === 'person' ? `
+              <select id="ext-sel-cmd-person" class="w-full p-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium text-slate-800 outline-none">
+                <option value="">-- בחר מהמאגר או הזן ת"ז חדשה למטה --</option>
+                ${peopleOptionsHtml}
+              </select>
+              <div>
+                <label for="ext-custom-cmd-id" class="block text-[11px] font-semibold text-slate-600 mb-1">או הזן ת"ז חדשה (נשמר אוטומטית עם שם מ-SmartBase):</label>
+                <input id="ext-custom-cmd-id" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.cmdCustomId)}" placeholder="תעודת זהות חדשה (9 ספרות)" class="w-full p-2 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-800 outline-none focus:border-[#5b4ce6]" />
+                <p id="ext-cmd-auto-preview" class="${extState.cmdCustomId.replace(/\D/g, '').length === 9 ? '' : 'hidden'} mt-1 text-[11px] font-bold text-emerald-700">
+                  ${extState.cmdCustomId.replace(/\D/g, '').length === 9 ? `שם מזוהה: ${escapeHtml(resolveSmartBaseNameById(extState.cmdCustomId))}` : ''}
+                </p>
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+            <label for="ext-sel-disp-person" class="block text-xs font-bold text-slate-700">מפקד משלח (ממלא ת"ז והנייד מושלם אוטומטית):</label>
+            <select id="ext-sel-disp-person" class="w-full p-2.5 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-800 outline-none focus:border-[#5b4ce6]">
+              <option value="">-- בחר משלח מהמאגר או הזן ת"ז חדשה --</option>
+              ${peopleOptionsHtml}
+            </select>
+            <div>
+              <label for="ext-custom-disp-id" class="block text-[11px] font-semibold text-slate-600 mb-1">או הזן ת"ז של משלח חדש (שומר אוטומטית עם שם):</label>
+              <input id="ext-custom-disp-id" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(extState.dispCustomId)}" placeholder="תעודת זהות חדשה (9 ספרות)" class="w-full p-2 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-800 outline-none focus:border-[#5b4ce6]" />
+              <p id="ext-disp-auto-preview" class="${extState.dispCustomId.replace(/\D/g, '').length === 9 ? '' : 'hidden'} mt-1 text-[11px] font-bold text-emerald-700">
+                ${extState.dispCustomId.replace(/\D/g, '').length === 9 ? `שם מזוהה: ${escapeHtml(resolveSmartBaseNameById(extState.dispCustomId))}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <button id="ext-run-step2" type="button" class="w-full py-3.5 px-4 rounded-2xl bg-[#5b4ce6] hover:bg-[#4939d4] text-white text-xs sm:text-sm font-extrabold shadow-lg shadow-indigo-500/25 transition">
+            ⚡ מלא שלב 2 ועבור אוטומטית לשלב 3
+          </button>
+        `;
+
+        const editBtn = document.getElementById('ext-edit-inline-myid');
+        if (editBtn) editBtn.addEventListener('click', () => { extState.editingMyId = true; renderExtContent(); });
+
+        const saveInlineBtn = document.getElementById('ext-save-inline-myid');
+        if (saveInlineBtn) {
+          saveInlineBtn.addEventListener('click', () => {
+            const val = document.getElementById('ext-inline-myid').value.replace(/\D/g, '').slice(0, 9);
+            if (val.length === 9) {
+              appData.myId = val;
+              saveData();
+              showToast('תעודת הזהות הקבועה עודכנה');
+            } else {
+              showToast('יש להזין תעודת זהות בת 9 ספרות');
+              return;
+            }
+            extState.editingMyId = false;
+            renderExtContent();
+          });
+        }
+
+        document.getElementById('ext-sel-vehicle').addEventListener('change', (e) => { extState.selectedVehiclePlate = e.target.value; });
+
+        extBody.querySelectorAll('[data-d-choice]').forEach((btn) => {
+          btn.addEventListener('click', () => { extState.driverChoice = btn.getAttribute('data-d-choice'); renderExtContent(); });
+        });
+
+        extBody.querySelectorAll('[data-c-choice]').forEach((btn) => {
+          btn.addEventListener('click', () => { extState.cmdChoice = btn.getAttribute('data-c-choice'); renderExtContent(); });
+        });
+
+        const selDriverPerson = document.getElementById('ext-sel-driver-person');
+        if (selDriverPerson) {
+          selDriverPerson.value = extState.driverCustomId ? '' : extState.driverPersonId;
+          selDriverPerson.addEventListener('change', (e) => { extState.driverPersonId = e.target.value; extState.driverCustomId = ''; renderExtContent(); });
+        }
+
+        const customDriverInput = document.getElementById('ext-custom-driver-id');
+        if (customDriverInput) {
+          customDriverInput.addEventListener('input', (e) => {
+            const clean = e.target.value.replace(/\D/g, '').slice(0, 9);
+            e.target.value = clean;
+            extState.driverCustomId = clean;
+            if (clean && selDriverPerson) selDriverPerson.value = '';
+            const prev = document.getElementById('ext-driver-auto-preview');
+            if (clean.length === 9 && prev) {
+              prev.textContent = `שם מזוהה: ${resolveSmartBaseNameById(clean)} (יישמר במילוי)`;
+              prev.classList.remove('hidden');
+            } else if (prev) prev.classList.add('hidden');
+          });
+        }
+
+        const selCmdPerson = document.getElementById('ext-sel-cmd-person');
+        if (selCmdPerson) {
+          selCmdPerson.value = extState.cmdCustomId ? '' : extState.cmdPersonId;
+          selCmdPerson.addEventListener('change', (e) => { extState.cmdPersonId = e.target.value; extState.cmdCustomId = ''; renderExtContent(); });
+        }
+
+        const customCmdInput = document.getElementById('ext-custom-cmd-id');
+        if (customCmdInput) {
+          customCmdInput.addEventListener('input', (e) => {
+            const clean = e.target.value.replace(/\D/g, '').slice(0, 9);
+            e.target.value = clean;
+            extState.cmdCustomId = clean;
+            if (clean && selCmdPerson) selCmdPerson.value = '';
+            const prev = document.getElementById('ext-cmd-auto-preview');
+            if (clean.length === 9 && prev) {
+              prev.textContent = `שם מזוהה: ${resolveSmartBaseNameById(clean)} (יישמר במילוי)`;
+              prev.classList.remove('hidden');
+            } else if (prev) prev.classList.add('hidden');
+          });
+        }
+
+        const selDispPerson = document.getElementById('ext-sel-disp-person');
+        if (selDispPerson) {
+          selDispPerson.value = extState.dispCustomId ? '' : extState.dispPersonId;
+          selDispPerson.addEventListener('change', (e) => { extState.dispPersonId = e.target.value; extState.dispCustomId = ''; renderExtContent(); });
+        }
+
+        const customDispInput = document.getElementById('ext-custom-disp-id');
+        if (customDispInput) {
+          customDispInput.addEventListener('input', (e) => {
+            const clean = e.target.value.replace(/\D/g, '').slice(0, 9);
+            e.target.value = clean;
+            extState.dispCustomId = clean;
+            if (clean && selDispPerson) selDispPerson.value = '';
+            const prev = document.getElementById('ext-disp-auto-preview');
+            if (clean.length === 9 && prev) {
+              prev.textContent = `שם מזוהה: ${resolveSmartBaseNameById(clean)} (יישמר במילוי)`;
+              prev.classList.remove('hidden');
+            } else if (prev) prev.classList.add('hidden');
+          });
+        }
+
+        document.getElementById('ext-run-step2').addEventListener('click', () => {
+          if (extState.selectedVehiclePlate) {
+            inputPlate.value = extState.selectedVehiclePlate;
+            flashElement(inputPlate);
+          }
+
+          if (extState.driverChoice === 'me') {
+            setDriverMode('me', appData.myId);
+          } else {
+            const finalDriverId = extState.driverCustomId.replace(/\D/g, '') || extState.driverPersonId || '';
+            setDriverMode('select', finalDriverId);
+            if (finalDriverId.length === 9) {
+              autoSavePersonFromSmartBase(finalDriverId, driverResolvedName, 'נהג');
+              if (extState.driverCustomId) {
+                extState.driverPersonId = finalDriverId;
+                extState.driverCustomId = '';
+              }
+            }
+          }
+
+          if (extState.cmdChoice === 'me') {
+            setCmdMode('me', appData.myId);
+          } else {
+            const finalCmdId = extState.cmdCustomId.replace(/\D/g, '') || extState.cmdPersonId || '';
+            setCmdMode('select', finalCmdId);
+            if (finalCmdId.length === 9) {
+              autoSavePersonFromSmartBase(finalCmdId, cmdResolvedName, 'מפקד משימה');
+              if (extState.cmdCustomId) {
+                extState.cmdPersonId = finalCmdId;
+                extState.cmdCustomId = '';
+              }
+            }
+          }
+
+          const finalDispId = extState.dispCustomId.replace(/\D/g, '') || extState.dispPersonId || '';
+          if (finalDispId) {
+            inputDispId.value = finalDispId;
+            flashElement(inputDispId);
+            syncDispatcherAutoPhone();
+            if (extState.dispCustomId) {
+              extState.dispPersonId = finalDispId;
+              extState.dispCustomId = '';
+            }
+          }
+
+          setStep(3);
+          checkboxAck.checked = true;
+          showToast('שלב 2 מולא • עבר אוטומטית לשלב 3');
+          renderExtContent();
+        });
+      }
+
+      function renderStep3QuickFill() {
+        const currentPlate = inputPlate.value.trim() || extState.selectedVehiclePlate;
+        const lastOdo = currentPlate && appData.lastOdometers ? appData.lastOdometers[currentPlate] : '';
+
+        extBody.innerHTML = `
+          <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-xs text-emerald-900 font-semibold">
+            שלב 3 • אישור הנחיות, חתימה דיגיטלית והזנת קילומטראז'.
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label for="ext-q-odo" class="block text-xs font-bold text-slate-700">קילומטראז' נוכחי ברכב:</label>
+              ${lastOdo ? `<span class="text-[11px] font-bold text-[#5b4ce6]">אחרון שנשמר: ${escapeHtml(lastOdo)} ק"מ</span>` : ''}
+            </div>
+            <input id="ext-q-odo" type="text" inputmode="numeric" value="${escapeHtml(extState.quickOdometer)}" placeholder='${lastOdo ? `אחרון: ${escapeHtml(lastOdo)}` : 'למשל: 84250'}' class="w-full p-2.5 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-800 outline-none focus:border-[#5b4ce6]" />
+          </div>
+
+          <button id="ext-run-step3-sign" type="button" class="w-full py-3.5 px-4 rounded-2xl bg-[#5b4ce6] hover:bg-[#4939d4] text-white text-xs sm:text-sm font-extrabold shadow-lg shadow-indigo-500/25 transition">
+            ⚡ אשר הנחיות, מלא ק"מ ופתח חתימה דיגיטלית
+          </button>
+        `;
+
+        document.getElementById('ext-q-odo').addEventListener('input', (e) => {
+          const clean = e.target.value.replace(/\D/g, '');
+          e.target.value = clean;
+          extState.quickOdometer = clean;
+        });
+
+        document.getElementById('ext-run-step3-sign').addEventListener('click', () => {
+          checkboxAck.checked = true;
+          flashElement(checkboxAck.parentElement);
+
+          const cleanOdo = extState.quickOdometer.replace(/\D/g, '');
+          if (cleanOdo) {
+            formState.odometer = cleanOdo;
+            inputOdometer.value = cleanOdo;
+            odometerError.classList.add('hidden');
+          }
+
+          closeExtDrawer();
+          openSignModal();
+          drawSampleSignature();
+          showToast('ההנחיות אושרו • חלון החתימה והק"מ נפתח');
+        });
+      }
+
+      function renderManageTab() {
+        extBody.innerHTML = `
+          <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2">
+            <label for="mgmt-my-id" class="block text-xs font-extrabold text-slate-800">תעודת הזהות הקבועה שלי:</label>
+            <div class="flex gap-2">
+              <input id="mgmt-my-id" type="text" inputmode="numeric" maxlength="9" value="${escapeHtml(appData.myId)}" class="flex-1 p-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-800 outline-none focus:border-[#5b4ce6]" />
+              <button id="mgmt-save-my-id" type="button" class="px-3.5 py-2 rounded-xl bg-[#5b4ce6] text-white text-xs font-bold">שמור</button>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+            <h3 class="text-xs font-extrabold text-slate-800">מסלולים קבועים (עם אפשרות עריכת עצירה):</h3>
+            <input id="new-route-name" type="text" placeholder="שם מסלול (למשל: בית הלל ◄ צפון)" class="w-full p-2 rounded-xl border border-slate-200 text-xs outline-none focus:border-[#5b4ce6]" />
+            <div class="grid grid-cols-3 gap-1.5">
+              <input id="new-route-origin" type="text" placeholder="מוצא" class="p-2 rounded-xl border border-slate-200 text-xs outline-none focus:border-[#5b4ce6]" />
+              <input id="new-route-stop" type="text" placeholder="עצירה (אופציונלי)" class="p-2 rounded-xl border border-slate-200 text-xs outline-none focus:border-[#5b4ce6]" />
+              <input id="new-route-dest" type="text" placeholder="יעד" class="p-2 rounded-xl border border-slate-200 text-xs outline-none focus:border-[#5b4ce6]" />
+            </div>
+            <button id="btn-add-route" type="button" class="w-full py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">+ הוסף מסלול</button>
+            <div class="space-y-1.5 pt-1">
+              ${appData.routes.map((r, idx) => `
+                <div class="flex items-center justify-between bg-slate-50 px-2.5 py-1.5 rounded-xl text-xs">
+                  <span class="font-semibold text-slate-700 truncate">${escapeHtml(r.name)} (${escapeHtml(r.origin)}${r.stop ? ` • ${escapeHtml(r.stop)}` : ''} ← ${escapeHtml(r.dest)})</span>
+                  <button type="button" data-del-route="${idx}" class="text-rose-600 font-bold text-[11px] px-2">מחק</button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+            <h3 class="text-xs font-extrabold text-slate-800">רכבים שמורים:</h3>
+            <div class="grid grid-cols-2 gap-2">
+              <input id="new-veh-name" type="text" placeholder="כינוי רכב (למשל: היילקס)" class="p-2 rounded-xl border border-slate-200 text-xs outline-none focus:border-[#5b4ce6]" />
+              <input id="new-veh-plate" type="text" placeholder="מס' רישוי / צ'" class="p-2 rounded-xl border border-slate-200 text-xs outline-none focus:border-[#5b4ce6]" />
+            </div>
+            <button id="btn-add-veh" type="button" class="w-full py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">+ הוסף רכב</button>
+            <div class="space-y-1.5 pt-1">
+              ${appData.vehicles.map((v, idx) => `
+                <div class="flex items-center justify-between bg-slate-50 px-2.5 py-1.5 rounded-xl text-xs">
+                  <span class="font-semibold text-slate-700">${escapeHtml(v.name)} — ${escapeHtml(v.plate)}</span>
+                  <button type="button" data-del-veh="${idx}" class="text-rose-600 font-bold text-[11px] px-2">מחק</button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+            <h3 class="text-xs font-extrabold text-slate-800">אנשי צוות / משלחים (ללא טלפון):</h3>
+            <div class="grid grid-cols-2 gap-2">
+              <input id="new-person-name" type="text" placeholder="שם (למשל: דני משלח)" class="p-2 rounded-xl border border-slate-200 text-xs outline-none focus:border-[#5b4ce6]" />
+              <input id="new-person-id" type="text" inputmode="numeric" maxlength="9" placeholder="תעודת זהות" class="p-2 rounded-xl border border-slate-200 text-xs outline-none focus:border-[#5b4ce6]" />
+            </div>
+            <button id="btn-add-person" type="button" class="w-full py-2 rounded-xl bg-slate-900 text-white text-xs font-bold">+ הוסף אדם</button>
+            <div class="space-y-1.5 pt-1">
+              ${appData.people.map((p, idx) => `
+                <div class="flex items-center justify-between bg-slate-50 px-2.5 py-1.5 rounded-xl text-xs">
+                  <span class="font-semibold text-slate-700">${escapeHtml(p.name)} — ${escapeHtml(p.id)}</span>
+                  <button type="button" data-del-person="${idx}" class="text-rose-600 font-bold text-[11px] px-2">מחק</button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-3 space-y-2">
+            <h3 class="text-xs font-extrabold text-indigo-950">📤 שיתוף וגיבוי רשימות יחידה (ללא ת"ז אישית)</h3>
+            <p class="text-[11px] text-slate-600">העתק קוד יחידה ושלח בוואטסאפ כדי להעביר מסלולים, רכבים ומשלחים למכשיר אחר בשנייה.</p>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btn-export-config" type="button" class="py-2 rounded-xl bg-[#5b4ce6] text-white text-xs font-bold">📋 העתק קוד שיתוף</button>
+              <button id="btn-import-config" type="button" class="py-2 rounded-xl bg-white border border-[#5b4ce6] text-[#5b4ce6] text-xs font-bold">📥 ייבא קוד</button>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('mgmt-save-my-id').addEventListener('click', () => {
+          const val = document.getElementById('mgmt-my-id').value.replace(/\D/g, '').slice(0, 9);
+          if (val.length !== 9) { showToast('יש להזין תעודת זהות בת 9 ספרות'); return; }
+          appData.myId = val;
+          saveData();
+          showToast('תעודת הזהות הקבועה נשמרה');
+          renderManageTab();
+        });
+
+        document.getElementById('btn-add-route').addEventListener('click', () => {
+          const origin = document.getElementById('new-route-origin').value.trim();
+          const stop = document.getElementById('new-route-stop').value.trim();
+          const dest = document.getElementById('new-route-dest').value.trim();
+          const rawName = document.getElementById('new-route-name').value.trim();
+          if (!origin || !dest) { showToast('יש למלא לפחות מוצא ויעד'); return; }
+          const name = rawName || `${origin}${stop ? ` ◄ ${stop}` : ''} ◄ ${dest}`;
+          appData.routes.push({ name, origin, stop, dest, purpose: 'תפקיד', tripType: 'נסיעה מנהלתית' });
+          extState.selectedRouteIdx = String(appData.routes.length - 1);
+          extState.quickOrigin = origin;
+          extState.quickStop = stop;
+          extState.quickDest = dest;
+          saveData();
+          showToast('המסלול נשמר');
+          renderManageTab();
+        });
+
+        document.getElementById('btn-add-veh').addEventListener('click', () => {
+          const name = document.getElementById('new-veh-name').value.trim();
+          const plate = document.getElementById('new-veh-plate').value.trim();
+          if (!name || !plate) { showToast('יש למלא כינוי ומספר רכב'); return; }
+          appData.vehicles.push({ name, plate });
+          extState.selectedVehiclePlate = plate;
+          saveData();
+          showToast('הרכב נשמר');
+          renderManageTab();
+        });
+
+        document.getElementById('btn-add-person').addEventListener('click', () => {
+          const name = document.getElementById('new-person-name').value.trim();
+          const id = document.getElementById('new-person-id').value.replace(/\D/g, '').slice(0, 9);
+          if (!name || id.length !== 9) { showToast('יש למלא שם ותעודת זהות בת 9 ספרות'); return; }
+          appData.people.push({ name, id, role: 'צוות' });
+          extState.dispPersonId = id;
+          saveData();
+          showToast('איש הצוות נשמר');
+          renderManageTab();
+        });
+
+        extBody.querySelectorAll('[data-del-route]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = Number(btn.getAttribute('data-del-route'));
+            appData.routes.splice(idx, 1);
+            if (extState.selectedRouteIdx !== '') {
+              const cur = Number(extState.selectedRouteIdx);
+              if (cur === idx) extState.selectedRouteIdx = appData.routes.length ? '0' : '';
+              else if (cur > idx) extState.selectedRouteIdx = String(cur - 1);
+            }
+            saveData();
+            renderManageTab();
+          });
+        });
+
+        extBody.querySelectorAll('[data-del-veh]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = Number(btn.getAttribute('data-del-veh'));
+            const removed = appData.vehicles.splice(idx, 1)[0];
+            if (removed && extState.selectedVehiclePlate === removed.plate) {
+              extState.selectedVehiclePlate = appData.vehicles[0]?.plate || '';
+            }
+            saveData();
+            renderManageTab();
+          });
+        });
+
+        extBody.querySelectorAll('[data-del-person]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = Number(btn.getAttribute('data-del-person'));
+            const removed = appData.people.splice(idx, 1)[0];
+            if (removed) {
+              if (extState.driverPersonId === removed.id) extState.driverPersonId = appData.people[0]?.id || '';
+              if (extState.cmdPersonId === removed.id) extState.cmdPersonId = appData.people[0]?.id || '';
+              if (extState.dispPersonId === removed.id) extState.dispPersonId = appData.people[0]?.id || '';
+            }
+            saveData();
+            renderManageTab();
+          });
+        });
+
+        document.getElementById('btn-export-config').addEventListener('click', async () => {
+          const payload = JSON.stringify({
+            v: 1,
+            routes: appData.routes,
+            vehicles: appData.vehicles,
+            people: appData.people
+          });
+          try {
+            await navigator.clipboard.writeText(payload);
+            showToast('קוד היחידה הועתק ללוח — ניתן לשלוח בוואטסאפ ✓');
+          } catch (_) {
+            window.prompt('העתק את קוד השיתוף:', payload);
+          }
+        });
+
+        document.getElementById('btn-import-config').addEventListener('click', () => {
+          const raw = window.prompt('הדבק כאן את קוד השיתוף שקיבלת:');
+          if (!raw) return;
+          try {
+            const parsed = JSON.parse(raw.trim());
+            if (!parsed || typeof parsed !== 'object') throw new Error('invalid');
+            if (Array.isArray(parsed.routes)) appData.routes = parsed.routes;
+            if (Array.isArray(parsed.vehicles)) appData.vehicles = parsed.vehicles;
+            if (Array.isArray(parsed.people)) appData.people = parsed.people;
+            saveData();
+            showToast('הגדרות היחידה יובאו בהצלחה ✓');
+            renderManageTab();
+          } catch (_) {
+            showToast('קוד לא תקין — ודא שהועתק במלואו');
+          }
+        });
+      }
+
+      document.getElementById('nav-step-1').addEventListener('click', () => setStep(1));
+      document.getElementById('nav-step-2').addEventListener('click', () => setStep(2));
+      document.getElementById('nav-step-3').addEventListener('click', () => setStep(3));
+      document.getElementById('stepper-1').addEventListener('click', () => setStep(1));
+      document.getElementById('stepper-2').addEventListener('click', () => setStep(2));
+      document.getElementById('stepper-3').addEventListener('click', () => setStep(3));
+
+      document.getElementById('btn-top-back').addEventListener('click', () => { if (formState.step > 1) setStep(formState.step - 1); });
+      document.getElementById('btn-next-to-step2').addEventListener('click', () => setStep(2));
+      document.getElementById('btn-back-to-step1').addEventListener('click', () => setStep(1));
+      document.getElementById('btn-next-to-step3').addEventListener('click', () => setStep(3));
+      document.getElementById('btn-back-to-step2').addEventListener('click', () => setStep(2));
+
+      document.getElementById('btn-toggle-stop').addEventListener('click', () => {
+        setStopVisibility(!formState.hasStop, false);
+        if (formState.hasStop) inputStop.focus();
+      });
+
+      document.getElementById('btn-remove-stop').addEventListener('click', () => setStopVisibility(false, true));
+
+      btnTripOp.addEventListener('click', () => setTripType('נסיעה מבצעית'));
+      btnTripAdmin.addEventListener('click', () => setTripType('נסיעה מנהלתית'));
+
+      btnDriverMe.addEventListener('click', () => setDriverMode('me', appData.myId));
+      btnDriverSelect.addEventListener('click', () => {
+        setDriverMode('select', formState.driverMode === 'select' ? inputDriverId.value : '');
+        inputDriverId.focus();
+      });
+      inputDriverId.addEventListener('input', (e) => {
+        const clean = e.target.value.replace(/\D/g, '').slice(0, 9);
+        e.target.value = clean;
+        if (clean.length === 9) autoSavePersonFromSmartBase(clean, driverResolvedName, 'נהג');
+        else driverResolvedName.classList.add('hidden');
+      });
+
+      btnCmdMe.addEventListener('click', () => setCmdMode('me', appData.myId));
+      btnCmdSelect.addEventListener('click', () => {
+        setCmdMode('select', formState.cmdMode === 'select' ? inputCmdId.value : '');
+        inputCmdId.focus();
+      });
+      inputCmdId.addEventListener('input', (e) => {
+        const clean = e.target.value.replace(/\D/g, '').slice(0, 9);
+        e.target.value = clean;
+        if (clean.length === 9) autoSavePersonFromSmartBase(clean, cmdResolvedName, 'מפקד משימה');
+        else cmdResolvedName.classList.add('hidden');
+      });
+
+      inputDispId.addEventListener('input', syncDispatcherAutoPhone);
+
+      inputPurpose.addEventListener('change', (e) => {
+        const chosen = e.target.value;
+        if (chosen) {
+          extState.quickPurpose = chosen;
+          recordPurposeUsage(chosen);
+          populatePurposeSelect(chosen);
+          flashElement(inputPurpose);
+        }
+      });
+
+      function resetFormFields() {
+        inputOrigin.value = '';
+        inputStop.value = '';
+        inputDest.value = '';
+        inputPurpose.value = '';
+        inputPlate.value = '';
+        inputDispId.value = '';
+        inputDispPhone.value = '';
+        dispPhoneBadge.classList.add('hidden');
+        driverResolvedName.classList.add('hidden');
+        cmdResolvedName.classList.add('hidden');
+        dispResolvedName.classList.add('hidden');
+        submitConfirmationCard.classList.add('hidden');
+        checkboxAck.checked = false;
+        formState.hasSignature = false;
+        formState.odometer = '';
+        formState.purposeRecordedForTicket = false;
+        hasDrawnStroke = false;
+        if (sigCanvas.width > 0) sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+        setStopVisibility(false, true);
+        setTripType('');
+        setDriverMode('', '');
+        setCmdMode('', '');
+        updateStep3Summary();
+        populatePurposeSelect('');
+      }
+
+      function openSignModal() {
+        signModal.classList.remove('hidden');
+        resizeSignatureCanvas(false);
+        if (formState.odometer) inputOdometer.value = formState.odometer;
+        odometerError.classList.add('hidden');
+      }
+
+      function closeSignModal() {
+        signModal.classList.add('hidden');
+      }
+
+      document.getElementById('btn-open-sign-modal').addEventListener('click', openSignModal);
+      document.getElementById('btn-close-sign-modal').addEventListener('click', closeSignModal);
+      document.getElementById('btn-clear-signature').addEventListener('click', clearSignature);
+
+      signModal.addEventListener('click', (e) => { if (e.target === signModal) closeSignModal(); });
+
+      document.getElementById('btn-save-sign-modal').addEventListener('click', () => {
+        const cleanOdo = inputOdometer.value.replace(/\D/g, '');
+        if (!cleanOdo) {
+          odometerError.classList.remove('hidden');
+          inputOdometer.focus();
+          return;
+        }
+        odometerError.classList.add('hidden');
+        formState.odometer = cleanOdo;
+        formState.hasSignature = hasDrawnStroke;
+        if (!formState.hasSignature) {
+          drawSampleSignature();
+          formState.hasSignature = true;
+        }
+        updateStep3Summary();
+        closeSignModal();
+        showToast(`נשמרו חתימה וקילומטראז' (${cleanOdo})`);
+      });
+
+      document.getElementById('btn-submit-ticket').addEventListener('click', () => {
+        if (!checkboxAck.checked) {
+          checkboxAck.checked = true;
+          flashElement(checkboxAck.parentElement);
+          showToast('סימנתי "קראתי והבנתי את ההנחיות" עבורך');
+        }
+        if (!formState.odometer) {
+          openSignModal();
+          showToast('הזן קילומטראז\' ולחץ שמירה כדי להשלים את השליחה');
+          return;
+        }
+
+        const originVal = inputOrigin.value.trim();
+        const stopVal = formState.hasStop ? inputStop.value.trim() : '';
+        const destVal = inputDest.value.trim();
+        const purposeVal = inputPurpose.value;
+        const plateVal = inputPlate.value.trim();
+
+        if (originVal && destVal) autoSaveRouteIfNew(originVal, stopVal, destVal, purposeVal, formState.tripType || 'נסיעה מנהלתית');
+        if (purposeVal && !formState.purposeRecordedForTicket) {
+          recordPurposeUsage(purposeVal);
+          formState.purposeRecordedForTicket = true;
+          populatePurposeSelect(purposeVal);
+        }
+        if (plateVal && formState.odometer) {
+          if (!appData.lastOdometers || typeof appData.lastOdometers !== 'object') appData.lastOdometers = {};
+          appData.lastOdometers[plateVal] = formState.odometer;
+          saveData();
+        }
+
+        const routeText = originVal || destVal
+          ? `${originVal || '—'}${stopVal ? ` ◄ ${stopVal}` : ''} ◄ ${destVal || '—'}`
+          : 'לא צוין מסלול';
+
+        const driverVal = inputDriverId.value.trim();
+        const cmdVal = inputCmdId.value.trim();
+        const dispVal = inputDispId.value.trim();
+
+        submitConfirmationDetails.innerHTML = `
+          <div><strong>מסלול:</strong> ${escapeHtml(routeText)}</div>
+          <div><strong>מטרה וסוג:</strong> ${escapeHtml(purposeVal || 'לא נבחר')} • ${escapeHtml(formState.tripType || 'נסיעה מנהלתית')}</div>
+          <div><strong>רכב:</strong> ${escapeHtml(plateVal || 'לא הוזן')} • <strong>ק"מ:</strong> ${escapeHtml(formState.odometer)}</div>
+          <div><strong>צוות:</strong> נהג ${escapeHtml(driverVal || '—')} • מפקד ${escapeHtml(cmdVal || '—')} • משלח ${escapeHtml(dispVal || '—')}</div>
+          <div><strong>חתימה דיגיטלית:</strong> ${formState.hasSignature ? 'נחתם ואושר ✓' : 'מאושר ✓'}</div>
+        `;
+        submitConfirmationCard.classList.remove('hidden');
+        flashElement(submitConfirmationCard);
+        submitConfirmationCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        showToast('כרטיס העבודה נשלח בהצלחה ✓');
+      });
+
+      document.getElementById('btn-new-ticket-after-submit').addEventListener('click', () => {
+        resetFormFields();
+        setStep(1);
+        showToast('מוכן לכרטיס עבודה חדש');
+      });
+
+      document.getElementById('btn-reset-demo').addEventListener('click', () => {
+        resetFormFields();
+        setStep(1);
+        showToast('הטופס אופס');
+      });
+
+      extFab.addEventListener('click', () => openExtDrawer('fill'));
+      extClose.addEventListener('click', closeExtDrawer);
+      extDrawer.addEventListener('click', (e) => { if (e.target === extDrawer) closeExtDrawer(); });
+      extTabFill.addEventListener('click', () => openExtDrawer('fill'));
+      extTabManage.addEventListener('click', () => openExtDrawer('manage'));
+
+      populatePurposeSelect();
+      updateStep3Summary();
+      setStep(1);
+    })();
+  </script>
+</body>
+</html>
