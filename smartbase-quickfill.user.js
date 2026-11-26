@@ -1,8 +1,7 @@
-```javascript
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      3.1.5
+// @version      3.1.7
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מנוע React Fiber ישיר לאשף רציף ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js
@@ -19,7 +18,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '3.1.5';
+  const SCRIPT_VERSION = '3.1.7';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -534,8 +533,10 @@
     if (learned.length > 0) {
       if (appData.pendingNameLookup) {
         for (const k of Object.keys(appData.pendingNameLookup)) {
-          const p = appData.people.find(x => x.id === appData.pendingNameLookup[k]);
-          if (p && !p.needsName) delete appData.pendingNameLookup[k];
+          const entry = appData.pendingNameLookup[k];
+          const pid = typeof entry === 'string' ? entry : (entry && entry.id);
+          const p = pid ? appData.people.find(x => x.id === pid) : null;
+          if (!p || !isPlaceholderPerson(p)) delete appData.pendingNameLookup[k];
         }
       }
       saveData();
@@ -1252,7 +1253,7 @@
     if (!appData.pendingNameLookup || typeof appData.pendingNameLookup !== 'object') {
       appData.pendingNameLookup = {};
     }
-    appData.pendingNameLookup[roleKey] = cleanId;
+    appData.pendingNameLookup[roleKey] = { id: cleanId, ts: Date.now() };
 
     const existing = appData.people.find(p => p.id === cleanId);
     if (!existing) {
@@ -1262,66 +1263,103 @@
     saveData();
   }
 
+  function extractCrewNamesFromBodyText(bodyText) {
+    const out = {};
+    const crewIdx = bodyText.indexOf('צוות משימה');
+    if (crewIdx === -1) return out;
+    const lines = bodyText.slice(crewIdx).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const forbidden = new Set(['צוות משימה', 'נהג', 'מפקד משלח', 'מפקד משימה', 'פרטי הרכב', 'קוד דלקן']);
+    const isLikelyHebrewName = (s) =>
+      s &&
+      s.length >= 2 &&
+      s.length <= 45 &&
+      /[\u0590-\u05FF]/.test(s) &&
+      !forbidden.has(s) &&
+      !/\d/.test(s) &&
+      !s.includes('ענ"א') &&
+      !s.includes('ק"מ');
+
+    const labelToKey = { 'נהג': 'driver', 'מפקד משלח': 'disp', 'מפקד משימה': 'cmd' };
+    for (let i = 1; i < lines.length; i++) {
+      const key = labelToKey[lines[i]];
+      if (!key || out[key]) continue;
+      for (let back = 1; back <= 2 && i - back >= 0; back++) {
+        const cand = lines[i - back];
+        if (isLikelyHebrewName(cand)) {
+          out[key] = cand;
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
   // Automatically pulls real Hebrew names from an open SmartBase work ticket ("צוות משימה")
   // and updates any saved person who entered a new ID without a name!
   function scrapeOpenTicketNamesAndOdometer() {
     const bodyText = document.body ? document.body.innerText : '';
     if (!bodyText.includes('צוות משימה')) return;
 
+    const crewNames = extractCrewNamesFromBodyText(bodyText);
     const roleMap = [
-      { key: 'driver', label: 'נהג' },
       { key: 'disp', label: 'מפקד משלח' },
-      { key: 'cmd', label: 'מפקד משימה' }
+      { key: 'cmd', label: 'מפקד משימה' },
+      { key: 'driver', label: 'נהג' }
     ];
 
     let updatedNames = [];
 
+    const PENDING_TTL_MS = 10 * 60 * 1000;
+    const nowTs = Date.now();
+
     for (const role of roleMap) {
-      const pendingId = appData.pendingNameLookup && appData.pendingNameLookup[role.key];
-      // Also check if any saved person has needsName:true for this role
-      const isPlaceholderName = (p) =>
-        Boolean(p.needsName) ||
-        p.name === 'ממתין לשם' ||
-        /^(משלח|נהג|מפקד משימה)\s*\(\d{4}\)$/.test(String(p.name || '').trim());
+      const entry = appData.pendingNameLookup && appData.pendingNameLookup[role.key];
+      if (!entry || typeof entry !== 'object' || !entry.id || !entry.ts) continue;
+      if (nowTs - entry.ts > PENDING_TTL_MS) {
+        delete appData.pendingNameLookup[role.key];
+        continue;
+      }
 
-      const allPlaceholders = appData.people.filter(isPlaceholderName);
-      const targetPerson =
-        (pendingId && appData.people.find(p => p.id === pendingId && isPlaceholderName(p))) ||
-        allPlaceholders.find(p => p.role === role.label || (role.key === 'disp' && p.role === 'משלח')) ||
-        (allPlaceholders.length === 1 ? allPlaceholders[0] : null);
+      const targetPerson = appData.people.find(p => p.id === entry.id && isPlaceholderPerson(p));
+      if (!targetPerson) {
+        delete appData.pendingNameLookup[role.key];
+        continue;
+      }
 
-      if (!targetPerson) continue;
+      let nameText = crewNames[role.key] || '';
 
-      // Find the exact role label element (e.g. "מפקד משלח", "נהג", "מפקד משימה") under "צוות משימה"
-      const roleNodes = Array.from(document.querySelectorAll('*'))
-        .filter(el => isVisible(el) && el.children.length === 0 && el.textContent.trim() === role.label);
-
-      for (const roleNode of roleNodes) {
-        // Look at previous sibling or parent's children for the Hebrew full name right above the role label
-        let nameText = '';
-        if (roleNode.previousElementSibling && isVisible(roleNode.previousElementSibling)) {
-          nameText = roleNode.previousElementSibling.textContent.trim();
-        }
-        if (!nameText && roleNode.parentElement) {
-          const sibTexts = Array.from(roleNode.parentElement.children)
-            .filter(c => c !== roleNode && isVisible(c))
-            .map(c => c.textContent.trim())
-            .filter(t => t.length >= 3 && t.length <= 40 && /[\u0590-\u05FF]/.test(t) && !t.includes('ענ"א') && !t.includes('ק"מ'));
-          if (sibTexts.length > 0) nameText = sibTexts[0];
-        }
-
-        if (nameText && nameText.length >= 3 && /[\u0590-\u05FF]/.test(nameText) && nameText !== role.label) {
-          const prevName = targetPerson.name;
-          if (targetPerson.needsName || prevName === 'ממתין לשם' || prevName.includes('(')) {
-            targetPerson.name = nameText;
-            targetPerson.needsName = false;
-            if (appData.pendingNameLookup && appData.pendingNameLookup[role.key] === targetPerson.id) {
-              delete appData.pendingNameLookup[role.key];
+      // Fallback DOM traversal around the role label if innerText line parsing didn't find it
+      if (!nameText) {
+        const roleNodes = Array.from(document.querySelectorAll('*'))
+          .filter(el => !el.closest('#sb-qf-host') && el.children.length === 0 && el.textContent.trim() === role.label);
+        for (const roleNode of roleNodes) {
+          let cur = roleNode;
+          for (let up = 0; cur && up < 3 && !nameText; up++, cur = cur.parentElement) {
+            if (cur.previousElementSibling) {
+              const t = cur.previousElementSibling.textContent.replace(/\s+/g, ' ').trim();
+              if (t.length >= 2 && t.length <= 45 && /[\u0590-\u05FF]/.test(t) && !/\d/.test(t) && t !== role.label) {
+                nameText = t;
+                break;
+              }
             }
-            updatedNames.push(nameText);
-            break;
+          }
+          if (nameText) break;
+        }
+      }
+
+      if (nameText && nameText.length >= 2 && /[\u0590-\u05FF]/.test(nameText) && nameText !== role.label) {
+        targetPerson.name = nameText;
+        targetPerson.needsName = false;
+        if (appData.pendingNameLookup) {
+          for (const k of Object.keys(appData.pendingNameLookup)) {
+            const e = appData.pendingNameLookup[k];
+            const pid = typeof e === 'string' ? e : (e && e.id);
+            if (pid === targetPerson.id) {
+              delete appData.pendingNameLookup[k];
+            }
           }
         }
+        if (!updatedNames.includes(nameText)) updatedNames.push(nameText);
       }
     }
 
@@ -3341,4 +3379,3 @@
     });
   });
 })();
-```
