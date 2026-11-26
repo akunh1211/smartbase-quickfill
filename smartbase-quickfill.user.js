@@ -1,7 +1,8 @@
+```javascript
 // ==UserScript==
 // @name         SmartBase מילוי מהיר לכרטיס עבודה
 // @namespace    https://smartbase-quickfill.local/
-// @version      3.1.2
+// @version      3.1.5
 // @description  מילוי מהיר של כרטיסי עבודה ב-SmartBase: מנוע React Fiber ישיר לאשף רציף ומילוי אוטומטי מלא מהבית ועד החתימה.
 // @author       SmartBase QuickFill
 // @downloadURL  https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js
@@ -18,7 +19,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '3.1.2';
+  const SCRIPT_VERSION = '3.1.5';
 
   // Allow hot-upgrading if an older version was already mounted
   const existingHost = document.getElementById('sb-qf-host');
@@ -391,6 +392,107 @@
     return cleanName;
   }
 
+  function isPlaceholderPerson(p) {
+    if (!p) return false;
+    return Boolean(p.needsName) ||
+      p.name === 'ממתין לשם' ||
+      /^(משלח|נהג|מפקד משימה)\s*\(\d{4}\)$/.test(String(p.name || '').trim());
+  }
+
+  function extractNameFromOfficialObj(obj) {
+    if (!obj || typeof obj !== 'object') return '';
+    const combined = `${obj.firstName || obj.first_name || ''} ${obj.lastName || obj.last_name || ''}`.replace(/\s+/g, ' ').trim();
+    const raw = combined || obj.fullName || obj.full_name || obj.displayName || obj.name || '';
+    return String(raw).replace(/\s+/g, ' ').trim();
+  }
+
+  function extractIdFromOfficialObj(obj) {
+    if (!obj || typeof obj !== 'object') return '';
+    const raw = obj.id || obj.tz || obj.idNumber || obj.personalNumber || obj.officialId || obj.userId || '';
+    const digits = String(raw).replace(/\D/g, '');
+    return digits.length === 9 ? digits : '';
+  }
+
+  function learnNamesFromStep2Dom(learned) {
+    const inputs = Array.from(document.querySelectorAll('input')).filter(el => !el.closest('#sb-qf-host'));
+    for (const inp of inputs) {
+      const digits = String(inp.value || '').replace(/\D/g, '');
+      if (digits.length !== 9 || digits === appData.myId) continue;
+      // Walk up to the enclosing card/section to find a paired "שם מלא" input or label
+      let card = inp.parentElement;
+      for (let depth = 0; card && depth < 6; depth++, card = card.parentElement) {
+        const cardText = card.textContent || '';
+        if (cardText.includes('שם מלא')) {
+          const cardInputs = Array.from(card.querySelectorAll('input')).filter(i => i !== inp && !i.closest('#sb-qf-host'));
+          for (const ci of cardInputs) {
+            const val = String(ci.value || '').replace(/\s+/g, ' ').trim();
+            if (val.length >= 3 && val.length <= 45 && /[֐-׿]/.test(val) && !/\d{5,}/.test(val)) {
+              const savedName = upsertSavedPersonFullName(digits, val, 'צוות');
+              if (savedName) learned.push(savedName);
+              break;
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  function learnNamesFromFiberTree(learned) {
+    const pendingIds = new Set(appData.people.filter(isPlaceholderPerson).map(p => p.id));
+    if (pendingIds.size === 0) return;
+
+    const rootEl = document.getElementById('root') || document.body.firstElementChild;
+    const startFiber = rootEl ? getReactFiber(rootEl) : null;
+    if (!startFiber) return;
+
+    const visitedObj = new WeakSet();
+    const scanVal = (val, depth) => {
+      if (!val || typeof val !== 'object' || depth > 5 || visitedObj.has(val)) return;
+      if (val instanceof Node || val === window) return;
+      visitedObj.add(val);
+
+      if (Array.isArray(val)) {
+        for (let i = 0; i < Math.min(val.length, 40); i++) scanVal(val[i], depth + 1);
+        return;
+      }
+
+      const id = extractIdFromOfficialObj(val);
+      if (id && pendingIds.has(id)) {
+        const nm = extractNameFromOfficialObj(val);
+        if (nm) {
+          const savedName = upsertSavedPersonFullName(id, nm, 'צוות');
+          if (savedName) {
+            learned.push(savedName);
+            pendingIds.delete(id);
+          }
+        }
+      }
+
+      const keys = Object.keys(val);
+      for (let i = 0; i < Math.min(keys.length, 25); i++) {
+        const k = keys[i];
+        if (k.startsWith('_') || k === 'children') continue;
+        try { scanVal(val[k], depth + 1); } catch (_) {}
+      }
+    };
+
+    const stack = [startFiber];
+    let steps = 0;
+    while (stack.length && steps < 450 && pendingIds.size > 0) {
+      const f = stack.pop();
+      steps++;
+      if (!f) continue;
+      if (f.memoizedProps) scanVal(f.memoizedProps, 0);
+      let st = f.memoizedState;
+      for (let s = 0; st && s < 12; s++, st = st.next) {
+        if (st.memoizedState && typeof st.memoizedState === 'object') scanVal(st.memoizedState, 0);
+      }
+      if (f.sibling) stack.push(f.sibling);
+      if (f.child) stack.push(f.child);
+    }
+  }
+
   function learnNamesFromSmartBaseState() {
     let learned = [];
     try {
@@ -398,9 +500,10 @@
       if (missionCtx && missionCtx.officials && typeof missionCtx.officials === 'object') {
         const roleLabels = { 1: 'נהג', 2: 'מפקד משלח', 3: 'מפקד משימה', 4: 'מפקד לילה' };
         for (const [factorId, off] of Object.entries(missionCtx.officials)) {
-          if (!off || !off.id) continue;
-          const full = `${off.firstName || ''} ${off.lastName || ''}`.replace(/\s+/g, ' ').trim();
-          const savedName = upsertSavedPersonFullName(off.id, full, roleLabels[factorId] || 'צוות');
+          const id = extractIdFromOfficialObj(off);
+          if (!id) continue;
+          const full = extractNameFromOfficialObj(off);
+          const savedName = upsertSavedPersonFullName(id, full, roleLabels[factorId] || 'צוות');
           if (savedName) learned.push(savedName);
         }
       }
@@ -415,13 +518,17 @@
         for (const [arr, role] of lists) {
           if (!Array.isArray(arr)) continue;
           for (const item of arr) {
-            if (item && item.tz && item.displayName) {
-              const savedName = upsertSavedPersonFullName(item.tz, item.displayName, role);
+            const id = extractIdFromOfficialObj(item);
+            const nm = extractNameFromOfficialObj(item);
+            if (id && nm) {
+              const savedName = upsertSavedPersonFullName(id, nm, role);
               if (savedName) learned.push(savedName);
             }
           }
         }
       }
+      learnNamesFromStep2Dom(learned);
+      learnNamesFromFiberTree(learned);
     } catch (_) {}
 
     if (learned.length > 0) {
@@ -432,6 +539,9 @@
         }
       }
       saveData();
+      if (drawer && drawer.classList.contains('open')) {
+        try { render(); } catch (_) {}
+      }
       showToast(`✓ שם מלא נשמר אוטומטית: ${learned.join(', ')}`);
     }
   }
@@ -1174,9 +1284,11 @@
         p.name === 'ממתין לשם' ||
         /^(משלח|נהג|מפקד משימה)\s*\(\d{4}\)$/.test(String(p.name || '').trim());
 
+      const allPlaceholders = appData.people.filter(isPlaceholderName);
       const targetPerson =
-        (pendingId && appData.people.find(p => p.id === pendingId)) ||
-        appData.people.find(p => isPlaceholderName(p) && (p.role === role.label || (role.key === 'disp' && p.role === 'משלח')));
+        (pendingId && appData.people.find(p => p.id === pendingId && isPlaceholderName(p))) ||
+        allPlaceholders.find(p => p.role === role.label || (role.key === 'disp' && p.role === 'משלח')) ||
+        (allPlaceholders.length === 1 ? allPlaceholders[0] : null);
 
       if (!targetPerson) continue;
 
@@ -1228,6 +1340,9 @@
 
     if (updatedNames.length > 0) {
       saveData();
+      if (drawer && drawer.classList.contains('open')) {
+        try { render(); } catch (_) {}
+      }
       showToast(`✓ שם נשמר מהכרטיס: ${updatedNames.join(', ')}`);
     }
   }
@@ -1612,7 +1727,7 @@
           <div class="sheet-title-wrap">
             <span style="font-size:20px;">⚡</span>
             <div>
-              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v3.1.1</span></h2>
+              <h2 class="sheet-title">מילוי מהיר • SmartBase <span style="font-size:11px;opacity:0.65;font-weight:700;">v${SCRIPT_VERSION}</span></h2>
               <p id="qf-subtitle" class="sheet-sub">שלב 1 • תכנון נסיעה ומסלולים</p>
             </div>
           </div>
@@ -1984,10 +2099,13 @@
         const drvId = extState.driverPersonId === NEW_ID_VAL ? extState.driverCustomId : extState.driverPersonId;
         if (drvId) {
           await fillOfficialIdByFactorType(1, drvId);
-          if (extState.driverPersonId === NEW_ID_VAL && drvId.length === 9) {
+          const drvRec = appData.people.find(p => p.id === drvId);
+          if ((extState.driverPersonId === NEW_ID_VAL || isPlaceholderPerson(drvRec)) && drvId.length === 9) {
             registerPersonIdForAutoName(drvId, 'driver', 'נהג');
-            extState.driverPersonId = drvId;
-            extState.driverCustomId = '';
+            if (extState.driverPersonId === NEW_ID_VAL) {
+              extState.driverPersonId = drvId;
+              extState.driverCustomId = '';
+            }
           }
         }
       }
@@ -2002,10 +2120,13 @@
         const cmdId = extState.cmdPersonId === NEW_ID_VAL ? extState.cmdCustomId : extState.cmdPersonId;
         if (cmdId) {
           await fillOfficialIdByFactorType(3, cmdId);
-          if (extState.cmdPersonId === NEW_ID_VAL && cmdId.length === 9) {
+          const cmdRec = appData.people.find(p => p.id === cmdId);
+          if ((extState.cmdPersonId === NEW_ID_VAL || isPlaceholderPerson(cmdRec)) && cmdId.length === 9) {
             registerPersonIdForAutoName(cmdId, 'cmd', 'מפקד משימה');
-            extState.cmdPersonId = cmdId;
-            extState.cmdCustomId = '';
+            if (extState.cmdPersonId === NEW_ID_VAL) {
+              extState.cmdPersonId = cmdId;
+              extState.cmdCustomId = '';
+            }
           }
         }
       }
@@ -2026,10 +2147,13 @@
         }
         if (dispId) {
           await fillOfficialIdByFactorType(2, dispId);
-          if (extState.dispPersonId === NEW_ID_VAL && dispId.length === 9) {
+          const dispRec = appData.people.find(p => p.id === dispId);
+          if ((extState.dispPersonId === NEW_ID_VAL || isPlaceholderPerson(dispRec)) && dispId.length === 9) {
             registerPersonIdForAutoName(dispId, 'disp', 'מפקד משלח');
-            extState.dispPersonId = dispId;
-            extState.dispCustomId = '';
+            if (extState.dispPersonId === NEW_ID_VAL) {
+              extState.dispPersonId = dispId;
+              extState.dispCustomId = '';
+            }
           }
         }
       }
@@ -2326,10 +2450,21 @@
   // 5C. Auto-Signature: replays the user's OWN saved signature on SmartBase's
   //     "חתימה דיגיטלית" canvas (signature_pad) and optionally presses "שמירה"
   // ---------------------------------------------------------------------------
-  function replaySignatureOnCanvas(canvas, strokes, mode) {
+  function resampleStroke(stroke, maxPts) {
+    if (!Array.isArray(stroke) || stroke.length <= maxPts) return stroke;
+    const out = [stroke[0]];
+    const step = (stroke.length - 1) / (maxPts - 1);
+    for (let i = 1; i < maxPts - 1; i++) {
+      out.push(stroke[Math.round(i * step)]);
+    }
+    out.push(stroke[stroke.length - 1]);
+    return out;
+  }
+
+  async function replaySignatureOnCanvas(canvas, strokes, mode) {
     try { canvas.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
     const r = canvas.getBoundingClientRect();
-    const pad = 0.1;
+    const pad = 0.08;
     const toXY = p => [
       r.left + r.width * (pad + Number(p[0]) * (1 - 2 * pad)),
       r.top + r.height * (pad + Number(p[1]) * (1 - 2 * pad))
@@ -2351,16 +2486,21 @@
         }
       } catch (_) {}
     };
-    for (const stroke of strokes) {
-      if (!Array.isArray(stroke) || stroke.length === 0) continue;
+    // signature_pad throttles pointermove/mousemove (~16ms), so space points by 20ms
+    for (const rawStroke of strokes) {
+      if (!Array.isArray(rawStroke) || rawStroke.length === 0) continue;
+      const stroke = resampleStroke(rawStroke, 24);
       const [x0, y0] = toXY(stroke[0]);
       fire('down', x0, y0, 1);
+      await delay(20);
       for (let i = 1; i < stroke.length; i++) {
         const [x, y] = toXY(stroke[i]);
         fire('move', x, y, 1);
+        await delay(20);
       }
       const [xl, yl] = toXY(stroke[stroke.length - 1]);
       fire('up', xl, yl, 0);
+      await delay(28);
     }
   }
 
@@ -2389,14 +2529,16 @@
       return false;
     }
 
-    replaySignatureOnCanvas(canvas, strokes, 'pointer');
-    await delay(300);
+    // Wait briefly for MUI dialog transition & signature_pad canvas resize to settle
+    await delay(350);
+    await replaySignatureOnCanvas(canvas, strokes, 'pointer');
+    await delay(250);
 
     let saveBtn = findSignDialogSaveButton();
     if (saveBtn && saveBtn.disabled) {
       // Older signature_pad builds listen to mouse events only
-      replaySignatureOnCanvas(canvas, strokes, 'mouse');
-      await delay(300);
+      await replaySignatureOnCanvas(canvas, strokes, 'mouse');
+      await delay(250);
       saveBtn = findSignDialogSaveButton();
     }
 
@@ -3199,3 +3341,4 @@
     });
   });
 })();
+```
