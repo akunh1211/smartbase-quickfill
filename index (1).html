@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartBase ⚡ מילוי מהיר — מדריך התקנה לאנדרואיד ולאייפון</title>
+  <style>
+    :root {
+      --bg-start: #0f172a;
+      --bg-mid: #1e1b4b;
+      --bg-end: #312e81;
+      --card: #ffffff;
+      --card-soft: #f8fafc;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #e2e8f0;
+      --primary: #4f46e5;
+      --primary-dark: #4338ca;
+      --emerald: #059669;
+      --emerald-soft: #ecfdf5;
+      --emerald-border: #a7f3d0;
+      --emerald-text: #065f46;
+      --indigo-soft: #eef2ff;
+      --indigo-border: #c7d2fe;
+      --indigo-text: #312e81;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(155deg, var(--bg-start) 0%, var(--bg-mid) 48%, var(--bg-end) 100%);
+      color: var(--text);
+      padding: 20px 14px 56px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: 560px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .hero {
+      background: var(--card);
+      border-radius: 26px;
+      padding: 26px 20px 22px;
+      box-shadow: 0 22px 48px rgba(2, 6, 23, 0.36);
+      text-align: center;
+    }
+
+    .app-icon {
+      width: 66px;
+      height: 66px;
+      margin: 0 auto 12px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+      color: #fff;
+      font-size: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 12px 26px rgba(79, 70, 229, 0.38);
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--indigo-soft);
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+      padding: 5px 12px;
+      border-radius: 999px;
+    }
+
+    .badge-green {
+      background: var(--emerald-soft);
+      color: var(--emerald-text);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 25px;
+      font-weight: 900;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+
+    .lead {
+      margin: 0 auto 18px;
+      max-width: 440px;
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .platform-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      background: #f1f5f9;
+      padding: 6px;
+      border-radius: 18px;
+    }
+
+    .tab-btn {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 13px 10px;
+      border-radius: 13px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .tab-btn.active {
+      background: #ffffff;
+      color: var(--primary);
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+    }
+
+    .detected-hint {
+      margin: 10px 0 0;
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 24px;
+      padding: 22px 20px;
+      box-shadow: 0 14px 32px rgba(2, 6, 23, 0.24);
+    }
+
+    .card h2 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: 900;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-sub {
+      margin: 0 0 16px;
+      font-size: 13.5px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .panel {
+      display: none;
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
+      border: none;
+      border-radius: 16px;
+      padding: 15px 18px;
+      font-size: 15.5px;
+      font-weight: 800;
+      cursor: pointer;
+      width: 100%;
+      transition: transform 0.12s ease, opacity 0.15s ease;
+    }
+
+    .btn:active {
+      transform: scale(0.985);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #5b4ce6 0%, #4338ca 100%);
+      color: #ffffff;
+      box-shadow: 0 10px 24px rgba(79, 70, 229, 0.34);
+    }
+
+    .btn-emerald {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      box-shadow: 0 10px 22px rgba(5, 150, 105, 0.3);
+    }
+
+    .btn-soft {
+      background: #f1f5f9;
+      color: #1e293b;
+      font-size: 14px;
+      padding: 12px 16px;
+    }
+
+    .btn-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .steps {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      background: var(--card-soft);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 13px 14px;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
+      background: var(--indigo-soft);
+      color: var(--primary);
+      font-size: 14px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step-body {
+      font-size: 14px;
+      color: #334155;
+      line-height: 1.55;
+    }
+
+    .step-body strong {
+      color: var(--text);
+    }
+
+    .url-box {
+      margin-top: 8px;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      direction: ltr;
+      text-align: left;
+      word-break: break-all;
+      line-height: 1.45;
+    }
+
+    .callout {
+      margin-top: 14px;
+      border-radius: 15px;
+      padding: 13px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.55;
+    }
+
+    .callout-green {
+      background: var(--emerald-soft);
+      border: 1px solid var(--emerald-border);
+      color: var(--emerald-text);
+    }
+
+    .callout-indigo {
+      background: var(--indigo-soft);
+      border: 1px solid var(--indigo-border);
+      color: var(--indigo-text);
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .feature-item {
+      background: var(--card-soft);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 11px 12px;
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.45;
+    }
+
+    .feature-item strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 2px;
+      font-size: 13.5px;
+    }
+
+    details {
+      margin-top: 14px;
+      background: var(--card-soft);
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      padding: 12px 14px;
+    }
+
+    details summary {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #334155;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    details[open] summary {
+      margin-bottom: 10px;
+    }
+
+    .footer-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .toast {
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-12px);
+      background: #0f172a;
+      color: #ffffff;
+      padding: 11px 18px;
+      border-radius: 14px;
+      font-size: 13.5px;
+      font-weight: 800;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 999;
+      box-shadow: 0 12px 28px rgba(2, 6, 23, 0.35);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    @media (max-width: 440px) {
+      .feature-grid,
+      .footer-actions {
+        grid-template-columns: 1fr;
+      }
+      h1 {
+        font-size: 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <main class="wrap">
+    <section class="hero">
+      <div class="app-icon" aria-hidden="true">⚡</div>
+      <div class="badge-row">
+        <span class="badge">גרסה עדכנית v3.1.8</span>
+        <span class="badge badge-green">✓ 100% מקומי ופרטי</span>
+      </div>
+      <h1>SmartBase מילוי מהיר</h1>
+      <p class="lead">
+        מילוי אוטומטי מלא של כרטיסי עבודה ב-<strong>SmartBase</strong> — מסלולים קבועים, רכבים, זיכרון קילומטראז', שליפת שמות אוטומטית וחתימה בלחיצה אחת.
+      </p>
+
+      <div class="platform-switch" role="tablist" aria-label="בחר סוג מכשיר">
+        <button id="tab-android" class="tab-btn active" type="button" role="tab" aria-selected="true" aria-controls="panel-android">
+          🤖 אנדרואיד
+        </button>
+        <button id="tab-iphone" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panel-iphone">
+          🍏 אייפון (Safari)
+        </button>
+      </div>
+      <p id="detected-hint" class="detected-hint">בחר את סוג הטלפון שלך לקבלת הוראות התקנה מהירות</p>
+    </section>
+
+    <!-- Android Panel -->
+    <section id="panel-android" class="card panel active" role="tabpanel" aria-labelledby="tab-android">
+      <h2>🤖 התקנה לאנדרואיד (קליק אחד)</h2>
+      <p class="card-sub">
+        אפליקציה ייעודית שפותחת את SmartBase עם כפתור <strong>⚡ מילוי מהיר</strong> מובנה בפנים ומתעדכנת אוטומטית לגרסה האחרונה (<code>v3.1.8</code>).
+      </p>
+
+      <div class="btn-stack">
+        <a href="https://github.com/akunh1211/smartbase-quickfill/releases/latest/download/SmartBase-QuickFill.apk" class="btn btn-primary" target="_blank" rel="noopener noreferrer">
+          ⬇️ הורד אפליקציה לאנדרואיד (SmartBase-QuickFill.apk)
+        </a>
+      </div>
+
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num">1</span>
+          <div class="step-body">לחץ על הכפתור הסגול למעלה כדי להוריד את הקובץ <strong>SmartBase-QuickFill.apk</strong>.</div>
+        </li>
+        <li class="step">
+          <span class="step-num">2</span>
+          <div class="step-body">פתח את הקובץ שירד ולחץ <strong>התקן</strong>. אם הטלפון שואל על "התקנה ממקור לא מוכר" — אשר פעם אחת וחזור להתקנה.</div>
+        </li>
+        <li class="step">
+          <span class="step-num">3</span>
+          <div class="step-body">פתח את האפליקציה החדשה <strong>SmartBase ⚡</strong>, התחבר כרגיל — וכפתור <strong>⚡ מילוי מהיר</strong> יופיע אוטומטית על המסך.</div>
+        </li>
+      </ol>
+
+      <div class="callout callout-green">
+        🔄 <strong>עדכונים אוטומטיים:</strong> האפליקציה מושכת אוטומטית את גרסת המילוי העדכנית ביותר (<code>v3.1.8</code>) בכל פתיחה — אין צורך להוריד APK מחדש.
+      </div>
+    </section>
+
+    <!-- iPhone Panel -->
+    <section id="panel-iphone" class="card panel" role="tabpanel" aria-labelledby="tab-iphone">
+      <h2>🍏 התקנה לאייפון (Safari בלבד)</h2>
+      <p class="card-sub">
+        התקנה חד-פעמית של דקה דרך ההרחבה החינמית <strong>Stay for Safari</strong> — בלי להוריד דפדפן אחר. מרגע ההגדרה כפתור <strong>⚡ מילוי מהיר</strong> יופיע אוטומטית בכל כניסה ל-SmartBase ב-Safari.
+      </p>
+
+      <div class="btn-stack">
+        <a href="https://apps.apple.com/us/app/stay-for-safari/id1591620171" class="btn btn-primary" target="_blank" rel="noopener noreferrer">
+          1️⃣ הורד Stay for Safari מה-App Store (חינם)
+        </a>
+        <button id="btn-copy-script" type="button" class="btn btn-emerald">
+          2️⃣ העתק את קישור הסקריפט (v3.1.8) להדבקה ב-Stay
+        </button>
+      </div>
+
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num">1</span>
+          <div class="step-body">התקן מה-App Store את <strong>Stay for Safari</strong> (כפתור 1 למעלה) ולחץ על כפתור 2 כדי להעתיק את קישור הסקריפט:
+            <div class="url-box" id="script-url-text">https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js</div>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">2</span>
+          <div class="step-body">פתח את אפליקציית <strong>Stay</strong> ← לחץ על <strong>+</strong> ← בחר <strong>Link</strong> ← הדבק את הקישור שהעתקת ולחץ <strong>Create / התקן</strong>.</div>
+        </li>
+        <li class="step">
+          <span class="step-num">3</span>
+          <div class="step-body">פתח את <strong>SmartBase</strong> ב-<strong>Safari</strong> ← לחץ על סמל התוספים בשורת הכתובת ← <strong>נהל הרחבות (Manage Extensions)</strong> ← הפעל את <strong>Stay</strong>.</div>
+        </li>
+        <li class="step">
+          <span class="step-num">4</span>
+          <div class="step-body">לחץ שוב על סמל התוספים ← <strong>Stay</strong> ← בחר <strong>אפשר תמיד (Always Allow)</strong> ← רענן את הדף. מעכשיו כפתור <strong>⚡ מילוי מהיר</strong> יופיע לבד!</div>
+        </li>
+      </ol>
+
+      <details>
+        <summary>
+          <span>אפשרות חלופית לאייפון: הרחבת Userscripts (קוד פתוח)</span>
+          <span>▼</span>
+        </summary>
+        <div class="step-body" style="font-size:13.5px;">
+          אפשר להשתמש גם בהרחבה החינמית <a href="https://apps.apple.com/us/app/userscripts/id1463298887" target="_blank" rel="noopener noreferrer" style="color:#4f46e5;font-weight:800;">Userscripts ב-App Store</a>: פותחים אותה פעם אחת לבחירת תיקייה באייפון, מפעילים תחת <em>הגדרות ← Safari ← הרחבות ← Userscripts</em>, ואז פותחים ב-Safari את קישור הסקריפט ולוחצים <strong>Install</strong>.
+        </div>
+      </details>
+    </section>
+
+    <!-- Highlights & Sharing Card -->
+    <section class="card">
+      <h2>✨ מה כלול בגרסה v3.1.8</h2>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <strong>מילוי רציף שלב 1 ← 3</strong>
+          מסלולים קבועים עם עריכת עצירה, מטרות מועדפות, רכב, צוות ואישור תנאים.
+        </div>
+        <div class="feature-item">
+          <strong>חתימה אוטומטית חלקה</strong>
+          שומרים חתימה פעם אחת במכשיר והיא משורטטת בצורה מלאה ומדויקת.
+        </div>
+        <div class="feature-item">
+          <strong>שליפת שמות חכמה</strong>
+          מקשר אוטומטית שם מלא לת"ז חדשה בזמן המילוי או מיד לאחריו, ללא טעויות.
+        </div>
+        <div class="feature-item">
+          <strong>שיתוף רשימות ביחידה</strong>
+          ב<strong>ניהול רשימות ות"ז</strong> מעתיקים קוד שיתוף ושולחים לחברים בוואטסאפ.
+        </div>
+      </div>
+
+      <div class="callout callout-indigo">
+        🔒 <strong>פרטיות מלאה:</strong> תעודות הזהות, השמות, הרכבים, המסלולים והחתימה נשמרים <strong>מקומית בלבד</strong> במכשיר שלך ולא נשלחים לשום שרת חיצוני.
+      </div>
+
+      <div class="footer-actions">
+        <button id="btn-share-wa" type="button" class="btn btn-emerald" style="font-size:14px;padding:12px 14px;">
+          📤 שתף מדריך בוואטסאפ
+        </button>
+        <button id="btn-copy-page" type="button" class="btn btn-soft">
+          🔗 העתק קישור לדף זה
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const SCRIPT_URL = 'https://raw.githubusercontent.com/akunh1211/smartbase-quickfill/main/smartbase-quickfill.user.js';
+      const PAGE_URL = 'https://akunh1211.github.io/smartbase-quickfill/';
+
+      const tabAndroid = document.getElementById('tab-android');
+      const tabIphone = document.getElementById('tab-iphone');
+      const panelAndroid = document.getElementById('panel-android');
+      const panelIphone = document.getElementById('panel-iphone');
+      const detectedHint = document.getElementById('detected-hint');
+      const toastEl = document.getElementById('toast');
+
+      let toastTimer = null;
+      function showToast(msg) {
+        toastEl.textContent = msg;
+        toastEl.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () {
+          toastEl.classList.remove('show');
+        }, 2800);
+      }
+
+      function copyText(text, successMsg) {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          navigator.clipboard.writeText(text).then(function () {
+            showToast(successMsg);
+          }).catch(function () {
+            fallbackCopy(text, successMsg);
+          });
+        } else {
+          fallbackCopy(text, successMsg);
+        }
+      }
+
+      function fallbackCopy(text, successMsg) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          showToast(successMsg);
+        } catch (_) {
+          showToast('לא ניתן להעתיק אוטומטית — סמן והעתק ידנית מהתיבה');
+        }
+        document.body.removeChild(ta);
+      }
+
+      function selectPlatform(platform) {
+        const isIphone = platform === 'iphone';
+        tabAndroid.classList.toggle('active', !isIphone);
+        tabIphone.classList.toggle('active', isIphone);
+        tabAndroid.setAttribute('aria-selected', String(!isIphone));
+        tabIphone.setAttribute('aria-selected', String(isIphone));
+        panelAndroid.classList.toggle('active', !isIphone);
+        panelIphone.classList.toggle('active', isIphone);
+      }
+
+      tabAndroid.addEventListener('click', function () {
+        selectPlatform('android');
+      });
+      tabIphone.addEventListener('click', function () {
+        selectPlatform('iphone');
+      });
+
+      document.getElementById('btn-copy-script').addEventListener('click', function () {
+        copyText(SCRIPT_URL, '✓ קישור הסקריפט הועתק — הדבק אותו ב-Stay');
+      });
+
+      document.getElementById('btn-copy-page').addEventListener('click', function () {
+        const targetUrl = (window.location.href && window.location.href.startsWith('http'))
+          ? window.location.href
+          : PAGE_URL;
+        copyText(targetUrl, '✓ הקישור לדף ההתקנה הועתק');
+      });
+
+      document.getElementById('btn-share-wa').addEventListener('click', function () {
+        const targetUrl = (window.location.href && window.location.href.startsWith('http'))
+          ? window.location.href
+          : PAGE_URL;
+        const msg = '⚡ התקנה מהירה ל-SmartBase QuickFill (אנדרואיד ואייפון):\n' + targetUrl;
+        window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank', 'noopener,noreferrer');
+      });
+
+      // Auto-detect iOS vs Android on load
+      const ua = navigator.userAgent || '';
+      if (/iPhone|iPad|iPod/i.test(ua)) {
+        selectPlatform('iphone');
+        detectedHint.textContent = 'זיהינו שאתה באייפון — הוצגו הוראות ל-Safari';
+      } else if (/Android/i.test(ua)) {
+        selectPlatform('android');
+        detectedHint.textContent = 'זיהינו שאתה באנדרואיד — הוצגו הוראות להורדת ה-APK';
+      }
+    })();
+  </script>
+</body>
+</html>
